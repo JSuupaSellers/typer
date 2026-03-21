@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @EnvironmentObject private var model: CuratorAppModel
     @State private var isImporterPresented = false
+    @State private var isPhotoImporterPresented = false
     @State private var isLLMSettingsPresented = false
 
     var body: some View {
@@ -22,6 +23,10 @@ struct ContentView: View {
                 UsageNotesStageView()
                     .tabItem { Label("Usage Notes", systemImage: "mic.badge.plus") }
                     .tag(CuratorStage.usageNotes)
+
+                EstimatePhotosStageView(isPhotoImporterPresented: $isPhotoImporterPresented)
+                    .tabItem { Label("Estimate Photos", systemImage: "photo.on.rectangle.angled") }
+                    .tag(CuratorStage.estimatePhotos)
             }
             .padding(20)
             .frame(minWidth: 1180, minHeight: 760)
@@ -39,20 +44,29 @@ struct ContentView: View {
                 }
             }
             ToolbarItemGroup(placement: .automatic) {
-                Button("Choose Workbook") {
-                    isImporterPresented = true
+                if model.selectedStage == .importData {
+                    Button("Choose Workbook") {
+                        isImporterPresented = true
+                    }
+                    .disabled(model.isBusy)
                 }
-                .disabled(model.isBusy)
+
+                if model.selectedStage == .estimatePhotos {
+                    Button("Choose Estimate Photos") {
+                        isPhotoImporterPresented = true
+                    }
+                    .disabled(model.isBusy || model.isScanningEstimatePhotos)
+                }
 
                 Button("Export Curated JSON") {
                     model.exportCuratedJSON()
                 }
-                .disabled(model.isBusy || model.stats.usedItems == 0)
+                .disabled(model.isBusy || model.isScanningEstimatePhotos || model.stats.usedItems == 0)
 
                 Button("OpenAI Settings") {
                     isLLMSettingsPresented = true
                 }
-                .disabled(model.isBusy)
+                .disabled(model.isBusy || model.isScanningEstimatePhotos)
             }
         }
         .fileImporter(
@@ -65,6 +79,18 @@ struct ContentView: View {
                 if let url = urls.first {
                     model.chooseWorkbook(url)
                 }
+            case let .failure(error):
+                model.lastError = error.localizedDescription
+            }
+        }
+        .fileImporter(
+            isPresented: $isPhotoImporterPresented,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case let .success(urls):
+                model.chooseEstimatePhotos(urls)
             case let .failure(error):
                 model.lastError = error.localizedDescription
             }
@@ -100,6 +126,189 @@ struct ContentView: View {
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     .shadow(color: .black.opacity(0.14), radius: 24, y: 12)
                 }
+            }
+        }
+    }
+}
+
+private struct EstimatePhotosStageView: View {
+    @EnvironmentObject private var model: CuratorAppModel
+    @Binding var isPhotoImporterPresented: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            StageHeroCard(
+                stage: .estimatePhotos,
+                eyebrow: "Stage 4",
+                title: "Mine Existing Estimates",
+                subtitle: "Load batches of estimate photos, let OpenAI read the visible CAT/SEL pairs, deduplicate them across the set, and automatically mark matching catalog items as used.",
+                metrics: [
+                    .init(label: "Photos", value: "\(model.photoScanSummary.totalPhotos)"),
+                    .init(label: "Processed", value: "\(model.photoScanSummary.processedPhotos)"),
+                    .init(label: "Unique Codes", value: "\(model.photoScanSummary.uniqueCodes.count)"),
+                    .init(label: "Marked Used", value: "\(model.photoScanSummary.newlyMarkedItems)")
+                ]
+            )
+
+            HSplitView {
+                CuratorPanel(tint: CuratorStage.estimatePhotos.theme.accent) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        PanelHeader(
+                            eyebrow: "Batch Input",
+                            title: "Estimate photo set",
+                            subtitle: "This works best on straight-on estimate screenshots or document photos where CAT and SEL columns are readable."
+                        )
+
+                        HStack(spacing: 12) {
+                            Button {
+                                isPhotoImporterPresented = true
+                            } label: {
+                                Label("Choose Photos", systemImage: "photo.badge.plus")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+                            .disabled(model.isScanningEstimatePhotos)
+
+                            Button {
+                                model.analyzeSelectedEstimatePhotos()
+                            } label: {
+                                Label(model.isScanningEstimatePhotos ? "Scanning..." : "Analyze and Mark Used", systemImage: "sparkles.rectangle.stack")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                            .disabled(model.estimatePhotoURLs.isEmpty || model.isScanningEstimatePhotos)
+                        }
+
+                        HStack {
+                            Button("Clear Session") {
+                                model.clearEstimatePhotoSelection()
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(model.estimatePhotoURLs.isEmpty || model.isScanningEstimatePhotos)
+
+                            Spacer()
+
+                            Label(
+                                model.llmSettings.hasVisionConfiguration ? "Vision ready" : "Vision not configured",
+                                systemImage: model.llmSettings.hasVisionConfiguration ? "eye" : "exclamationmark.triangle"
+                            )
+                            .foregroundStyle(model.llmSettings.hasVisionConfiguration ? CuratorStage.estimatePhotos.theme.accent : .orange)
+                        }
+
+                        MetricStrip(
+                            title: "Selected photos",
+                            value: "\(model.estimatePhotoURLs.count)",
+                            tint: CuratorStage.estimatePhotos.theme.secondaryAccent
+                        )
+
+                        if model.photoScanSummary.totalPhotos > 0 {
+                            ProgressView(
+                                value: Double(model.photoScanSummary.processedPhotos),
+                                total: Double(max(model.photoScanSummary.totalPhotos, 1))
+                            ) {
+                                Text("Batch progress")
+                            } currentValueLabel: {
+                                Text("\(model.photoScanSummary.processedPhotos) / \(model.photoScanSummary.totalPhotos)")
+                            }
+                        }
+
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(model.estimatePhotoURLs, id: \.self) { url in
+                                    Text(url.lastPathComponent)
+                                        .font(.callout)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 10)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                .fill(CuratorStage.estimatePhotos.theme.accent.opacity(0.08))
+                                        )
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(minWidth: 300, idealWidth: 340)
+
+                CuratorPanel(tint: CuratorStage.estimatePhotos.theme.secondaryAccent) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        PanelHeader(
+                            eyebrow: "Per Photo",
+                            title: "Scan results",
+                            subtitle: "Each photo is analyzed individually so batches can scale to large estimate sets without one bad image blocking the whole run."
+                        )
+
+                        if model.photoScanEntries.isEmpty {
+                            ContentUnavailableView(
+                                "No estimate photos loaded",
+                                systemImage: "photo.on.rectangle",
+                                description: Text("Choose a batch of photos to start mining CAT/SEL pairs.")
+                            )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            ScrollView {
+                                LazyVStack(alignment: .leading, spacing: 12) {
+                                    ForEach(model.photoScanEntries) { entry in
+                                        PhotoScanEntryCard(entry: entry, tint: CuratorStage.estimatePhotos.theme.accent)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(minWidth: 430)
+
+                CuratorPanel(tint: CuratorStage.estimatePhotos.theme.accent) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        PanelHeader(
+                            eyebrow: "Auto Marking",
+                            title: "Catalog updates",
+                            subtitle: "After the batch finishes, matching CAT/SEL pairs are marked as used automatically. Any unmatched codes stay visible here for cleanup."
+                        )
+
+                        HStack(spacing: 12) {
+                            MetricCard(title: "Matched", value: "\(model.photoScanSummary.matchedItems)", symbol: "link", tint: CuratorStage.estimatePhotos.theme.accent)
+                            MetricCard(title: "Newly Marked", value: "\(model.photoScanSummary.newlyMarkedItems)", symbol: "checkmark.circle", tint: CuratorStage.estimatePhotos.theme.secondaryAccent)
+                        }
+
+                        HStack(spacing: 12) {
+                            MetricCard(title: "Already Used", value: "\(model.photoScanSummary.alreadyUsedItems)", symbol: "arrow.triangle.2.circlepath", tint: CuratorStage.estimatePhotos.theme.secondaryAccent)
+                            MetricCard(title: "Failed Photos", value: "\(model.photoScanSummary.failedPhotos)", symbol: "exclamationmark.triangle", tint: CuratorStage.estimatePhotos.theme.accent)
+                        }
+
+                        DetailSurface(title: "Unique CAT/SEL pairs", tint: CuratorStage.estimatePhotos.theme.secondaryAccent) {
+                            if model.photoScanSummary.uniqueCodes.isEmpty {
+                                Text("No CAT/SEL pairs have been extracted yet.")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    ForEach(model.photoScanSummary.uniqueCodes, id: \.self) { code in
+                                        Text(code.displayCode)
+                                            .font(.system(.body, design: .monospaced, weight: .medium))
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                            }
+                        }
+
+                        DetailSurface(title: "Unmatched codes", tint: CuratorStage.estimatePhotos.theme.accent) {
+                            if model.photoScanSummary.unmatchedCodes.isEmpty {
+                                Text("No unmatched codes right now.")
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    ForEach(model.photoScanSummary.unmatchedCodes, id: \.self) { code in
+                                        Text(code.displayCode)
+                                            .font(.system(.body, design: .monospaced, weight: .medium))
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(minWidth: 320, idealWidth: 340)
             }
         }
     }
@@ -624,9 +833,10 @@ private struct LLMSettingsSheet: View {
                 StageHeroCard(
                     stage: .usageNotes,
                     eyebrow: "OpenAI Configuration",
-                    title: "Voice transcription and cleanup",
-                    subtitle: "The app records audio locally, sends the file to OpenAI transcription, and then uses a cleanup model to turn the raw transcript into a structured usage note.",
+                    title: "Vision, voice, and cleanup",
+                    subtitle: "The app can analyze estimate photos with OpenAI vision, transcribe voice notes, and clean transcripts into structured usage guidance.",
                     metrics: [
+                        .init(label: "Vision", value: settings.visionModel.isEmpty ? "Unset" : settings.visionModel),
                         .init(label: "Transcription", value: settings.transcriptionModel.isEmpty ? "Unset" : settings.transcriptionModel),
                         .init(label: "Cleanup", value: settings.cleanupModel.isEmpty ? "Unset" : settings.cleanupModel),
                         .init(label: "API Key", value: settings.apiKey.isEmpty ? "Missing" : "Saved")
@@ -639,6 +849,8 @@ private struct LLMSettingsSheet: View {
                             .textFieldStyle(.roundedBorder)
                         SecureField("API Key", text: $settings.apiKey)
                             .textFieldStyle(.roundedBorder)
+                        TextField("Vision Model", text: $settings.visionModel)
+                            .textFieldStyle(.roundedBorder)
                         TextField("Transcription Model (use whisper-1 for Whisper)", text: $settings.transcriptionModel)
                             .textFieldStyle(.roundedBorder)
                         TextField("Cleanup Model", text: $settings.cleanupModel)
@@ -646,10 +858,11 @@ private struct LLMSettingsSheet: View {
 
                         InfoBadge(
                             title: "Model note",
-                            value: "As of March 21, 2026, OpenAI's Whisper API model is whisper-1. Newer non-Whisper transcription models include gpt-4o-transcribe and gpt-4o-mini-transcribe.",
+                            value: "As of March 21, 2026, OpenAI's Whisper API model is whisper-1. OpenAI's image inputs accept base64 data URLs, and the latest models support text plus image input. This app defaults estimate-photo scanning to gpt-4.1-mini for cost and batch throughput.",
                             tint: CuratorStage.usageNotes.theme.accent
                         )
 
+                        SurfaceEditor(title: "Estimate Photo Prompt", text: $settings.estimatePhotoPrompt, tint: CuratorStage.usageNotes.theme.accent, minHeight: 150)
                         SurfaceEditor(title: "System Prompt", text: $settings.systemPrompt, tint: CuratorStage.usageNotes.theme.secondaryAccent, minHeight: 200)
 
                         HStack {
@@ -669,6 +882,78 @@ private struct LLMSettingsSheet: View {
             .padding(24)
         }
         .frame(minWidth: 760, minHeight: 560)
+    }
+}
+
+private struct PhotoScanEntryCard: View {
+    let entry: PhotoScanEntry
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(entry.fileURL.lastPathComponent)
+                        .font(.headline)
+                    Text(entry.fileURL.deletingLastPathComponent().path(percentEncoded: false))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                PhotoScanStatusBadge(status: entry.status, tint: tint)
+            }
+
+            if !entry.detectedCodes.isEmpty {
+                Text(entry.detectedCodes.map(\.displayCode).joined(separator: ", "))
+                    .font(.system(.body, design: .monospaced))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if !entry.note.isEmpty {
+                Text(entry.note)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !entry.errorMessage.isEmpty {
+                Text(entry.errorMessage)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(tint.opacity(0.08))
+        )
+    }
+}
+
+private struct PhotoScanStatusBadge: View {
+    let status: PhotoScanStatus
+    let tint: Color
+
+    var body: some View {
+        Text(status.label)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(fillColor))
+    }
+
+    private var fillColor: Color {
+        switch status {
+        case .pending:
+            return tint.opacity(0.10)
+        case .scanning:
+            return Color.orange.opacity(0.18)
+        case .completed:
+            return Color.green.opacity(0.18)
+        case .failed:
+            return Color.red.opacity(0.18)
+        }
     }
 }
 
@@ -1092,6 +1377,12 @@ private extension CuratorStage {
                 accent: Color(red: 0.13, green: 0.39, blue: 0.78),
                 secondaryAccent: Color(red: 0.06, green: 0.62, blue: 0.67),
                 symbol: "waveform.badge.mic"
+            )
+        case .estimatePhotos:
+            return StageTheme(
+                accent: Color(red: 0.18, green: 0.47, blue: 0.26),
+                secondaryAccent: Color(red: 0.62, green: 0.42, blue: 0.12),
+                symbol: "photo.on.rectangle.angled"
             )
         }
     }

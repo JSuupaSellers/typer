@@ -6,6 +6,7 @@ enum CuratorStage: Hashable {
     case importData
     case quickReview
     case usageNotes
+    case estimatePhotos
 }
 
 @MainActor
@@ -22,10 +23,14 @@ final class CuratorAppModel: ObservableObject {
     @Published var selectedUsageNoteID: Int64?
     @Published var scenarioDraft: ScenarioDraft = .empty
     @Published var noteSearchText: String = ""
+    @Published var estimatePhotoURLs: [URL] = []
+    @Published var photoScanEntries: [PhotoScanEntry] = []
+    @Published var photoScanSummary: PhotoScanSummary = .empty
     @Published var llmSettings: LLMSettings = .load()
     @Published var lastError: String = ""
     @Published var isBusy = false
     @Published var isRecordingTranscript = false
+    @Published var isScanningEstimatePhotos = false
 
     private let importer = WorkbookImporter()
     private let audioRecorder = AudioRecorder()
@@ -188,6 +193,92 @@ final class CuratorAppModel: ObservableObject {
     func saveLLMSettings(_ settings: LLMSettings) {
         llmSettings = settings
         llmSettings.save()
+    }
+
+    func chooseEstimatePhotos(_ urls: [URL]) {
+        let sortedURLs = urls.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+        estimatePhotoURLs = sortedURLs
+        photoScanEntries = sortedURLs.map { PhotoScanEntry(fileURL: $0) }
+        photoScanSummary = PhotoScanSummary(
+            totalPhotos: sortedURLs.count,
+            processedPhotos: 0,
+            completedPhotos: 0,
+            failedPhotos: 0,
+            uniqueCodes: [],
+            matchedItems: 0,
+            newlyMarkedItems: 0,
+            alreadyUsedItems: 0,
+            unmatchedCodes: []
+        )
+        selectedStage = .estimatePhotos
+    }
+
+    func clearEstimatePhotoSelection() {
+        guard !isScanningEstimatePhotos else { return }
+        estimatePhotoURLs = []
+        photoScanEntries = []
+        photoScanSummary = .empty
+    }
+
+    func analyzeSelectedEstimatePhotos() {
+        guard let store else {
+            lastError = "The catalog database is unavailable."
+            return
+        }
+        guard !estimatePhotoURLs.isEmpty else {
+            lastError = "Choose one or more estimate photos first."
+            return
+        }
+        guard llmSettings.hasVisionConfiguration else {
+            lastError = "Configure the OpenAI API key and vision model first."
+            return
+        }
+
+        let urls = estimatePhotoURLs
+        let settings = llmSettings
+        isScanningEstimatePhotos = true
+        photoScanEntries = urls.map { PhotoScanEntry(fileURL: $0) }
+        photoScanSummary = PhotoScanSummary(
+            totalPhotos: urls.count,
+            processedPhotos: 0,
+            completedPhotos: 0,
+            failedPhotos: 0,
+            uniqueCodes: [],
+            matchedItems: 0,
+            newlyMarkedItems: 0,
+            alreadyUsedItems: 0,
+            unmatchedCodes: []
+        )
+
+        Task {
+            let outcomes = await Self.runEstimatePhotoBatch(
+                urls: urls,
+                settings: settings
+            ) { [weak self] outcome in
+                await self?.applyPhotoOutcome(outcome)
+            }
+
+            do {
+                let uniqueCodes = Set(outcomes.flatMap { $0.extraction?.detectedCodes ?? [] })
+                let updateSummary = try store.markItemsUsed(matching: uniqueCodes)
+                try reloadEverything()
+                photoScanSummary = PhotoScanSummary(
+                    totalPhotos: urls.count,
+                    processedPhotos: outcomes.count,
+                    completedPhotos: outcomes.filter { $0.extraction != nil }.count,
+                    failedPhotos: outcomes.filter { $0.errorMessage != nil }.count,
+                    uniqueCodes: Array(uniqueCodes).sorted(),
+                    matchedItems: updateSummary.matchedItems,
+                    newlyMarkedItems: updateSummary.newlyMarkedItems,
+                    alreadyUsedItems: updateSummary.alreadyUsedItems,
+                    unmatchedCodes: updateSummary.unmatchedCodes
+                )
+                isScanningEstimatePhotos = false
+            } catch {
+                lastError = error.localizedDescription
+                isScanningEstimatePhotos = false
+            }
+        }
     }
 
     func toggleTranscriptRecording() {
@@ -403,4 +494,79 @@ final class CuratorAppModel: ObservableObject {
     private func finishWork() {
         isBusy = false
     }
+
+    private func applyPhotoOutcome(_ outcome: EstimatePhotoBatchOutcome) {
+        if let index = photoScanEntries.firstIndex(where: { $0.id == outcome.fileURL.path(percentEncoded: false) }) {
+            photoScanEntries[index].status = outcome.extraction == nil ? .failed : .completed
+            photoScanEntries[index].detectedCodes = outcome.extraction?.detectedCodes ?? []
+            photoScanEntries[index].note = outcome.extraction?.note ?? ""
+            photoScanEntries[index].errorMessage = outcome.errorMessage ?? ""
+        }
+
+        let processedPhotos = photoScanEntries.filter { $0.status == .completed || $0.status == .failed }.count
+        let completedPhotos = photoScanEntries.filter { $0.status == .completed }.count
+        let failedPhotos = photoScanEntries.filter { $0.status == .failed }.count
+        let uniqueCodes = Array(Set(photoScanEntries.flatMap(\.detectedCodes))).sorted()
+
+        photoScanSummary = PhotoScanSummary(
+            totalPhotos: photoScanEntries.count,
+            processedPhotos: processedPhotos,
+            completedPhotos: completedPhotos,
+            failedPhotos: failedPhotos,
+            uniqueCodes: uniqueCodes,
+            matchedItems: photoScanSummary.matchedItems,
+            newlyMarkedItems: photoScanSummary.newlyMarkedItems,
+            alreadyUsedItems: photoScanSummary.alreadyUsedItems,
+            unmatchedCodes: photoScanSummary.unmatchedCodes
+        )
+    }
+
+    nonisolated private static func runEstimatePhotoBatch(
+        urls: [URL],
+        settings: LLMSettings,
+        onProgress: @escaping @Sendable (EstimatePhotoBatchOutcome) async -> Void
+    ) async -> [EstimatePhotoBatchOutcome] {
+        let orderedURLs = urls.sorted { $0.path(percentEncoded: false) < $1.path(percentEncoded: false) }
+        let maxConcurrent = min(3, max(1, orderedURLs.count))
+
+        return await withTaskGroup(of: EstimatePhotoBatchOutcome.self) { group in
+            var iterator = orderedURLs.makeIterator()
+
+            func enqueue(_ url: URL) {
+                group.addTask {
+                    do {
+                        let extraction = try await OpenAIEstimatePhotoAnalysisService().analyzePhoto(
+                            fileURL: url,
+                            settings: settings
+                        )
+                        return EstimatePhotoBatchOutcome(fileURL: url, extraction: extraction, errorMessage: nil)
+                    } catch {
+                        return EstimatePhotoBatchOutcome(fileURL: url, extraction: nil, errorMessage: error.localizedDescription)
+                    }
+                }
+            }
+
+            for _ in 0 ..< maxConcurrent {
+                if let url = iterator.next() {
+                    enqueue(url)
+                }
+            }
+
+            var outcomes: [EstimatePhotoBatchOutcome] = []
+            while let outcome = await group.next() {
+                outcomes.append(outcome)
+                await onProgress(outcome)
+                if let nextURL = iterator.next() {
+                    enqueue(nextURL)
+                }
+            }
+            return outcomes.sorted { $0.fileURL.path(percentEncoded: false) < $1.fileURL.path(percentEncoded: false) }
+        }
+    }
+}
+
+private struct EstimatePhotoBatchOutcome: Sendable {
+    let fileURL: URL
+    let extraction: EstimatePhotoExtraction?
+    let errorMessage: String?
 }

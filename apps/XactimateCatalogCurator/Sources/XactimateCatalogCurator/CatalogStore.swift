@@ -281,6 +281,66 @@ final class CatalogStore {
         }
     }
 
+    func markItemsUsed(matching codes: Set<CatalogCode>) throws -> BulkUsageUpdateSummary {
+        guard !codes.isEmpty else {
+            return BulkUsageUpdateSummary(matchedItems: 0, newlyMarkedItems: 0, alreadyUsedItems: 0, unmatchedCodes: [])
+        }
+
+        let normalizedCodes = Set(codes.map { CatalogCode(category: $0.category, selector: $0.selector) })
+
+        return try dbQueue.write { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT id, category, selector, usage_status AS usageStatus
+                    FROM catalog_items
+                """
+            )
+
+            var matchedIDs: [Int64] = []
+            var matchedCodes = Set<CatalogCode>()
+            var newlyMarkedItems = 0
+            var alreadyUsedItems = 0
+
+            for row in rows {
+                let code = CatalogCode(category: row["category"], selector: row["selector"])
+                guard normalizedCodes.contains(code) else { continue }
+                matchedCodes.insert(code)
+                matchedIDs.append(row["id"])
+                let usageStatus: String = row["usageStatus"]
+                if usageStatus == UsageStatus.usedBefore.rawValue {
+                    alreadyUsedItems += 1
+                } else {
+                    newlyMarkedItems += 1
+                }
+            }
+
+            if !matchedIDs.isEmpty {
+                let placeholders = matchedIDs.map { _ in "?" }.joined(separator: ", ")
+                var arguments = StatementArguments()
+                arguments += [UsageStatus.usedBefore.rawValue, Self.timestamp(), Self.timestamp()]
+                for id in matchedIDs {
+                    arguments += [id]
+                }
+                try db.execute(
+                    sql: """
+                        UPDATE catalog_items
+                        SET usage_status = ?, decision_at = ?, updated_at = ?
+                        WHERE id IN (\(placeholders))
+                    """,
+                    arguments: arguments
+                )
+            }
+
+            return BulkUsageUpdateSummary(
+                matchedItems: matchedIDs.count,
+                newlyMarkedItems: newlyMarkedItems,
+                alreadyUsedItems: alreadyUsedItems,
+                unmatchedCodes: normalizedCodes.subtracting(matchedCodes).sorted()
+            )
+        }
+    }
+
     func exportCuratedJSON() throws -> CuratedExportEnvelope {
         try dbQueue.read { db in
             let itemRows = try Row.fetchAll(

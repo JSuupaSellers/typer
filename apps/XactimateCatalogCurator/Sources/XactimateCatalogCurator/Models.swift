@@ -36,6 +36,38 @@ struct ParsedCatalogRow: Sendable {
     let rawFields: [String: String]
 }
 
+struct CatalogCode: Codable, Hashable, Sendable, Comparable {
+    let category: String
+    let selector: String
+
+    init(category: String, selector: String) {
+        self.category = Self.normalize(category)
+        self.selector = Self.normalize(selector)
+    }
+
+    var displayCode: String {
+        let left = category.trimmingCharacters(in: .whitespacesAndNewlines)
+        let right = selector.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !left.isEmpty && !right.isEmpty {
+            return "\(left)/\(right)"
+        }
+        return right.isEmpty ? left : right
+    }
+
+    static func < (lhs: CatalogCode, rhs: CatalogCode) -> Bool {
+        if lhs.category == rhs.category {
+            return lhs.selector < rhs.selector
+        }
+        return lhs.category < rhs.category
+    }
+
+    private static func normalize(_ value: String) -> String {
+        value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+    }
+}
+
 struct ImportResultSummary: Equatable {
     let importedCount: Int
     let insertedCount: Int
@@ -54,6 +86,91 @@ struct CurationStats: Equatable {
     static let empty = CurationStats(totalItems: 0, unreviewedItems: 0, usedItems: 0, neverUsedItems: 0, usageNoteCount: 0)
 
     var reviewedItems: Int { totalItems - unreviewedItems }
+}
+
+enum PhotoScanStatus: String, Equatable {
+    case pending
+    case scanning
+    case completed
+    case failed
+
+    var label: String {
+        switch self {
+        case .pending:
+            return "Pending"
+        case .scanning:
+            return "Scanning"
+        case .completed:
+            return "Completed"
+        case .failed:
+            return "Failed"
+        }
+    }
+}
+
+struct PhotoScanEntry: Identifiable, Equatable {
+    let id: String
+    let fileURL: URL
+    var status: PhotoScanStatus
+    var detectedCodes: [CatalogCode]
+    var note: String
+    var errorMessage: String
+
+    init(
+        fileURL: URL,
+        status: PhotoScanStatus = .pending,
+        detectedCodes: [CatalogCode] = [],
+        note: String = "",
+        errorMessage: String = ""
+    ) {
+        id = fileURL.path(percentEncoded: false)
+        self.fileURL = fileURL
+        self.status = status
+        self.detectedCodes = detectedCodes
+        self.note = note
+        self.errorMessage = errorMessage
+    }
+}
+
+struct PhotoScanSummary: Equatable {
+    let totalPhotos: Int
+    let processedPhotos: Int
+    let completedPhotos: Int
+    let failedPhotos: Int
+    let uniqueCodes: [CatalogCode]
+    let matchedItems: Int
+    let newlyMarkedItems: Int
+    let alreadyUsedItems: Int
+    let unmatchedCodes: [CatalogCode]
+
+    static let empty = PhotoScanSummary(
+        totalPhotos: 0,
+        processedPhotos: 0,
+        completedPhotos: 0,
+        failedPhotos: 0,
+        uniqueCodes: [],
+        matchedItems: 0,
+        newlyMarkedItems: 0,
+        alreadyUsedItems: 0,
+        unmatchedCodes: []
+    )
+}
+
+struct EstimatePhotoExtraction: Codable, Equatable {
+    let detectedCodes: [CatalogCode]
+    let note: String
+
+    enum CodingKeys: String, CodingKey {
+        case detectedCodes = "detected_codes"
+        case note
+    }
+}
+
+struct BulkUsageUpdateSummary: Equatable {
+    let matchedItems: Int
+    let newlyMarkedItems: Int
+    let alreadyUsedItems: Int
+    let unmatchedCodes: [CatalogCode]
 }
 
 struct CatalogItemSummary: Identifiable, FetchableRecord, Decodable, Hashable {
@@ -116,8 +233,10 @@ struct UsageScenarioRecord: Identifiable, FetchableRecord, Decodable, Hashable {
 struct LLMSettings: Codable, Equatable {
     var baseURL: String = "https://api.openai.com/v1"
     var apiKey: String = ""
+    var visionModel: String = "gpt-4.1-mini"
     var transcriptionModel: String = "whisper-1"
     var cleanupModel: String = ""
+    var estimatePhotoPrompt: String = Self.defaultEstimatePhotoPrompt
     var systemPrompt: String = Self.defaultPrompt
 
     static let defaultsKey = "llm-settings"
@@ -136,6 +255,24 @@ struct LLMSettings: Codable, Equatable {
     - ai_hint should help a later estimating model choose this item appropriately.
     - Do not invent facts that are not supported by the transcript or line-item context.
     """
+
+    static let defaultEstimatePhotoPrompt = """
+    You are reading a photo of an already-written Xactimate estimate.
+    Extract only exact Xactimate CAT/SEL pairs that are clearly visible in the image.
+
+    Rules:
+    - Return only CAT/SEL pairs that are explicitly visible. Do not guess from descriptions.
+    - Normalize category and selector to uppercase.
+    - If a code is partially obscured, uncertain, or ambiguous, leave it out.
+    - Deduplicate codes within the image.
+    - The note should briefly describe what was visible, or say that no clear CAT/SEL pairs were found.
+    """
+
+    var hasVisionConfiguration: Bool {
+        !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !visionModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var hasTranscriptionConfiguration: Bool {
         !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
