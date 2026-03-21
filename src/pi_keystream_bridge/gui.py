@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -128,7 +129,7 @@ class BridgeApp:
         row: int,
         label: str,
         key: str,
-        browse: callable | None = None,
+        browse: Callable[[], None] | None = None,
         control: ttk.Frame | None = None,
     ) -> None:
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=5)
@@ -254,4 +255,3 @@ def run_gui(config_path: Path) -> None:
     root = tk.Tk()
     BridgeApp(root, config_path)
     root.mainloop()
-

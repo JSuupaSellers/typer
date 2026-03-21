@@ -79,8 +79,8 @@ class BridgeController:
         if not self._running and self._worker is None:
             return
         self._stop_event.set()
-        self._firebase.stop()
         self._ack_publisher.stop()
+        self._firebase.stop()
         self._queue.put(None)
         if self._worker is not None and self._worker.is_alive():
             self._worker.join(timeout=3)
