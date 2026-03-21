@@ -22,10 +22,15 @@ final class CuratorAppModel: ObservableObject {
     @Published var selectedUsageNoteID: Int64?
     @Published var scenarioDraft: ScenarioDraft = .empty
     @Published var noteSearchText: String = ""
+    @Published var llmSettings: LLMSettings = .load()
     @Published var lastError: String = ""
     @Published var isBusy = false
+    @Published var isRecordingTranscript = false
 
     private let importer = WorkbookImporter()
+    private let audioRecorder = AudioRecorder()
+    private let llmCleaningService = LLMCleaningService()
+    private let transcriptionService = OpenAITranscriptionService()
     private let store: CatalogStore?
     private var skippedReviewIDs: Set<Int64> = []
 
@@ -166,6 +171,119 @@ final class CuratorAppModel: ObservableObject {
             }
         } catch {
             lastError = error.localizedDescription
+        }
+    }
+
+    func saveLLMSettings(_ settings: LLMSettings) {
+        llmSettings = settings
+        llmSettings.save()
+    }
+
+    func toggleTranscriptRecording() {
+        if isRecordingTranscript {
+            stopRecordingAndTranscribe()
+        } else {
+            startRecordingTranscript()
+        }
+    }
+
+    func cleanTranscriptWithLLM() {
+        guard let item = selectedUsedItem else {
+            lastError = "Choose a used item before cleaning a transcript."
+            return
+        }
+        let transcript = scenarioDraft.transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !transcript.isEmpty else {
+            lastError = "Add or dictate a raw transcript first."
+            return
+        }
+        guard llmSettings.hasCleanupConfiguration else {
+            lastError = "Configure the OpenAI API key and cleanup model first."
+            return
+        }
+        guard startWork() else { return }
+        let settings = llmSettings
+        Task {
+            do {
+                let cleaned = try await llmCleaningService.cleanTranscript(
+                    transcript: transcript,
+                    item: item,
+                    settings: settings
+                )
+                await MainActor.run {
+                    scenarioDraft.title = cleaned.title
+                    scenarioDraft.tags = cleaned.tags
+                    scenarioDraft.cleanedDescription = cleaned.cleanedDescription
+                    scenarioDraft.aiHint = cleaned.aiHint
+                    finishWork()
+                }
+            } catch {
+                await MainActor.run {
+                    lastError = error.localizedDescription
+                    finishWork()
+                }
+            }
+        }
+    }
+
+    private func startRecordingTranscript() {
+        guard selectedUsedItem != nil else {
+            lastError = "Choose a used item before recording."
+            return
+        }
+        guard llmSettings.hasTranscriptionConfiguration else {
+            lastError = "Configure the OpenAI API key and transcription model first."
+            return
+        }
+        guard startWork() else { return }
+        Task {
+            do {
+                _ = try await audioRecorder.startRecording()
+                await MainActor.run {
+                    isRecordingTranscript = true
+                    finishWork()
+                }
+            } catch {
+                await MainActor.run {
+                    lastError = error.localizedDescription
+                    isRecordingTranscript = false
+                    finishWork()
+                }
+            }
+        }
+    }
+
+    private func stopRecordingAndTranscribe() {
+        guard let item = selectedUsedItem else {
+            lastError = "Choose a used item before transcribing."
+            return
+        }
+        guard llmSettings.hasTranscriptionConfiguration else {
+            lastError = "Configure the OpenAI API key and transcription model first."
+            return
+        }
+        guard startWork() else { return }
+        Task {
+            do {
+                let audioURL = try await MainActor.run { try audioRecorder.stopRecording() }
+                let transcript = try await transcriptionService.transcribeAudio(
+                    fileURL: audioURL,
+                    item: item,
+                    settings: llmSettings
+                )
+                try? FileManager.default.removeItem(at: audioURL)
+                await MainActor.run {
+                    isRecordingTranscript = false
+                    scenarioDraft.transcript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+                    finishWork()
+                }
+            } catch {
+                await MainActor.run {
+                    isRecordingTranscript = false
+                    lastError = error.localizedDescription
+                    finishWork()
+                }
+            }
         }
     }
 

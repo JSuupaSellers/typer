@@ -113,6 +113,76 @@ struct UsageScenarioRecord: Identifiable, FetchableRecord, Decodable, Hashable {
     let updatedAt: String
 }
 
+struct LLMSettings: Codable, Equatable {
+    var baseURL: String = "https://api.openai.com/v1"
+    var apiKey: String = ""
+    var transcriptionModel: String = "whisper-1"
+    var cleanupModel: String = ""
+    var systemPrompt: String = Self.defaultPrompt
+
+    static let defaultsKey = "llm-settings"
+
+    static let defaultPrompt = """
+    You clean up a user's spoken transcript about when a Xactimate line item is used.
+    Return JSON only with keys:
+    - title
+    - tags
+    - cleaned_description
+    - ai_hint
+
+    Rules:
+    - cleaned_description should be a concise, practical summary of when and why the item is used.
+    - tags should be a short comma-separated list.
+    - ai_hint should help a later estimating model choose this item appropriately.
+    - Do not invent facts that are not supported by the transcript or line-item context.
+    """
+
+    var hasTranscriptionConfiguration: Bool {
+        !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !transcriptionModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var hasCleanupConfiguration: Bool {
+        !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !cleanupModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var isConfigured: Bool {
+        hasTranscriptionConfiguration && hasCleanupConfiguration
+    }
+
+    static func load() -> LLMSettings {
+        guard
+            let data = UserDefaults.standard.data(forKey: defaultsKey),
+            let settings = try? JSONDecoder().decode(LLMSettings.self, from: data)
+        else {
+            return LLMSettings()
+        }
+        return settings
+    }
+
+    func save() {
+        guard let data = try? JSONEncoder().encode(self) else { return }
+        UserDefaults.standard.set(data, forKey: Self.defaultsKey)
+    }
+}
+
+struct CleanedUsageNoteResult: Codable, Equatable {
+    let title: String
+    let tags: String
+    let cleanedDescription: String
+    let aiHint: String
+
+    enum CodingKeys: String, CodingKey {
+        case title
+        case tags
+        case cleanedDescription = "cleaned_description"
+        case aiHint = "ai_hint"
+    }
+}
+
 struct ScenarioDraft: Equatable {
     var id: Int64?
     var title: String = ""
@@ -148,6 +218,16 @@ struct ScenarioDraft: Equatable {
         whenToUse = record.whenToUse
         voiceNotes = record.voiceNotes
         aiHint = record.aiHint
+    }
+
+    var transcript: String {
+        get { voiceNotes }
+        set { voiceNotes = newValue }
+    }
+
+    var cleanedDescription: String {
+        get { whenToUse }
+        set { whenToUse = newValue }
     }
 }
 

@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @EnvironmentObject private var model: CuratorAppModel
     @State private var isImporterPresented = false
+    @State private var isLLMSettingsPresented = false
 
     var body: some View {
         TabView(selection: $model.selectedStage) {
@@ -42,6 +43,11 @@ struct ContentView: View {
                     model.exportCuratedJSON()
                 }
                 .disabled(model.isBusy || model.stats.usedItems == 0)
+
+                Button("OpenAI Settings") {
+                    isLLMSettingsPresented = true
+                }
+                .disabled(model.isBusy)
             }
         }
         .fileImporter(
@@ -64,6 +70,12 @@ struct ContentView: View {
             }
         } message: {
             Text(model.lastError)
+        }
+        .sheet(isPresented: $isLLMSettingsPresented) {
+            LLMSettingsSheet(
+                initialSettings: model.llmSettings,
+                onSave: { model.saveLLMSettings($0) }
+            )
         }
         .overlay {
             if model.isBusy {
@@ -306,7 +318,7 @@ private struct UsageNotesStageView: View {
                             .font(.title2.weight(.semibold))
                         Text(item.description)
                             .font(.headline)
-                        Text("Use macOS Dictation in the text fields below if you want voice-driven note entry.")
+                        Text("Record audio here, let OpenAI transcribe it, and then clean that raw transcript into a structured note.")
                             .foregroundStyle(.secondary)
                     }
 
@@ -352,8 +364,29 @@ private struct UsageNotesStageView: View {
                             TextField("Tags", text: $model.scenarioDraft.tags)
                                 .textFieldStyle(.roundedBorder)
 
-                            LabeledEditor(title: "When I use it", text: $model.scenarioDraft.whenToUse)
-                            LabeledEditor(title: "Voice transcript / notes", text: $model.scenarioDraft.voiceNotes)
+                            HStack {
+                                Label(model.llmSettings.hasTranscriptionConfiguration ? "Transcription ready" : "Transcription not configured", systemImage: model.llmSettings.hasTranscriptionConfiguration ? "waveform.badge.mic" : "exclamationmark.triangle")
+                                    .foregroundStyle(model.llmSettings.hasTranscriptionConfiguration ? .green : .orange)
+                                Spacer()
+                                if model.isRecordingTranscript {
+                                    Button("Stop & Transcribe") {
+                                        model.toggleTranscriptRecording()
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                } else {
+                                    Button("Record Transcript") {
+                                        model.toggleTranscriptRecording()
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
+                                Button("Clean Transcript with LLM") {
+                                    model.cleanTranscriptWithLLM()
+                                }
+                                .buttonStyle(.bordered)
+                            }
+
+                            LabeledEditor(title: "Raw voice transcript", text: $model.scenarioDraft.transcript)
+                            LabeledEditor(title: "Cleaned usage description", text: $model.scenarioDraft.cleanedDescription)
                             LabeledEditor(title: "AI hint", text: $model.scenarioDraft.aiHint)
 
                             HStack {
@@ -376,6 +409,62 @@ private struct UsageNotesStageView: View {
             }
             .frame(minWidth: 720)
         }
+    }
+}
+
+private struct LLMSettingsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var settings: LLMSettings
+    let onSave: (LLMSettings) -> Void
+
+    init(initialSettings: LLMSettings, onSave: @escaping (LLMSettings) -> Void) {
+        _settings = State(initialValue: initialSettings)
+        self.onSave = onSave
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("OpenAI Voice + Cleanup Settings")
+                .font(.title2.weight(.semibold))
+            Text("This app records audio locally, sends that recording to OpenAI transcription, and then sends the transcript to OpenAI for cleanup into a structured usage note.")
+                .foregroundStyle(.secondary)
+
+            TextField("OpenAI Base URL", text: $settings.baseURL)
+                .textFieldStyle(.roundedBorder)
+            SecureField("API Key", text: $settings.apiKey)
+                .textFieldStyle(.roundedBorder)
+            TextField("Transcription Model (use whisper-1 for Whisper)", text: $settings.transcriptionModel)
+                .textFieldStyle(.roundedBorder)
+            TextField("Cleanup Model", text: $settings.cleanupModel)
+                .textFieldStyle(.roundedBorder)
+            Text("As of March 21, 2026, OpenAI's Whisper API model is `whisper-1`. Newer non-Whisper transcription models include `gpt-4o-transcribe` and `gpt-4o-mini-transcribe`.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("System Prompt")
+                    .font(.headline)
+                TextEditor(text: $settings.systemPrompt)
+                    .font(.body.monospaced())
+                    .frame(minHeight: 180)
+                    .padding(8)
+                    .background(Color(NSColor.textBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    dismiss()
+                }
+                Button("Save") {
+                    onSave(settings)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 680, minHeight: 420)
     }
 }
 
@@ -413,4 +502,3 @@ private struct LabeledEditor: View {
         }
     }
 }
-
