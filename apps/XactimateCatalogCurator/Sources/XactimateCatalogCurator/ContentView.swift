@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -122,8 +123,21 @@ struct ContentView: View {
                     VStack(spacing: 12) {
                         ProgressView()
                             .controlSize(.large)
-                        Text("Working...")
+                        Text(model.activityState.title)
                             .font(.headline)
+                        if !model.activityState.detail.isEmpty {
+                            Text(model.activityState.detail)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: 320)
+                        }
+                        if let progressValue = model.activityState.progressValue,
+                           let progressTotal = model.activityState.progressTotal,
+                           progressTotal > 0 {
+                            ProgressView(value: progressValue, total: progressTotal)
+                                .frame(width: 240)
+                        }
                     }
                     .padding(.horizontal, 28)
                     .padding(.vertical, 22)
@@ -762,7 +776,6 @@ private struct QuickReviewStageView: View {
                                     }
                                     .buttonStyle(.borderedProminent)
                                     .controlSize(.large)
-                                    .keyboardShortcut(.space, modifiers: [])
 
                                     Button {
                                         model.markCurrentReviewItem(as: .neverUsed)
@@ -771,7 +784,6 @@ private struct QuickReviewStageView: View {
                                     }
                                     .buttonStyle(.bordered)
                                     .controlSize(.large)
-                                    .keyboardShortcut("n", modifiers: [])
 
                                     Button {
                                         model.skipCurrentReviewItem()
@@ -780,7 +792,6 @@ private struct QuickReviewStageView: View {
                                     }
                                     .buttonStyle(.bordered)
                                     .controlSize(.large)
-                                    .keyboardShortcut("s", modifiers: [])
                                 }
                             }
                         }
@@ -825,6 +836,15 @@ private struct QuickReviewStageView: View {
             }
             .padding(.bottom, 8)
         }
+        .background(
+            QuickReviewShortcutMonitor(
+                isEnabled: model.selectedStage == .quickReview && model.currentReviewItem != nil,
+                onUsedBefore: { model.markCurrentReviewItem(as: .usedBefore) },
+                onNeverUsed: { model.markCurrentReviewItem(as: .neverUsed) },
+                onSkip: { model.skipCurrentReviewItem() }
+            )
+            .frame(width: 0, height: 0)
+        )
         .scrollIndicators(.hidden)
     }
 }
@@ -1365,6 +1385,123 @@ private struct RecommendationScenarioHighlightCard: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(tint.opacity(0.08))
         )
+    }
+}
+
+private struct QuickReviewShortcutMonitor: NSViewRepresentable {
+    let isEnabled: Bool
+    let onUsedBefore: () -> Void
+    let onNeverUsed: () -> Void
+    let onSkip: () -> Void
+
+    func makeNSView(context: Context) -> QuickReviewShortcutMonitorView {
+        let view = QuickReviewShortcutMonitorView()
+        view.update(
+            isEnabled: isEnabled,
+            onUsedBefore: onUsedBefore,
+            onNeverUsed: onNeverUsed,
+            onSkip: onSkip
+        )
+        return view
+    }
+
+    func updateNSView(_ nsView: QuickReviewShortcutMonitorView, context: Context) {
+        nsView.update(
+            isEnabled: isEnabled,
+            onUsedBefore: onUsedBefore,
+            onNeverUsed: onNeverUsed,
+            onSkip: onSkip
+        )
+    }
+}
+
+private final class QuickReviewShortcutMonitorView: NSView {
+    private var monitor: Any?
+    private var isEnabled = false
+    private var onUsedBefore: (() -> Void)?
+    private var onNeverUsed: (() -> Void)?
+    private var onSkip: (() -> Void)?
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil {
+            removeMonitor()
+        }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        refreshMonitor()
+    }
+
+    func update(
+        isEnabled: Bool,
+        onUsedBefore: @escaping () -> Void,
+        onNeverUsed: @escaping () -> Void,
+        onSkip: @escaping () -> Void
+    ) {
+        self.isEnabled = isEnabled
+        self.onUsedBefore = onUsedBefore
+        self.onNeverUsed = onNeverUsed
+        self.onSkip = onSkip
+        refreshMonitor()
+    }
+
+    private func refreshMonitor() {
+        guard isEnabled, window != nil else {
+            removeMonitor()
+            return
+        }
+
+        guard monitor == nil else { return }
+
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            guard self.isEnabled, self.window != nil, NSApp.keyWindow === self.window else {
+                return event
+            }
+            guard !Self.isTextInputFocused(in: self.window) else {
+                return event
+            }
+
+            let disallowedModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .function]
+            guard event.modifierFlags.intersection(disallowedModifiers).isEmpty else {
+                return event
+            }
+
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case " ":
+                self.onUsedBefore?()
+                return nil
+            case "n":
+                self.onNeverUsed?()
+                return nil
+            case "s":
+                self.onSkip?()
+                return nil
+            default:
+                return event
+            }
+        }
+    }
+
+    private func removeMonitor() {
+        if let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+    }
+
+    private static func isTextInputFocused(in window: NSWindow?) -> Bool {
+        guard let responder = window?.firstResponder else { return false }
+        if responder is NSTextView {
+            return true
+        }
+        if let view = responder as? NSView,
+           String(describing: type(of: view)).contains("Text") {
+            return true
+        }
+        return false
     }
 }
 

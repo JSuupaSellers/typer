@@ -14,22 +14,18 @@ struct XactimateCatalogCuratorApp: App {
                 Button("Mark Used Before") {
                     model.markCurrentReviewItem(as: .usedBefore)
                 }
-                .keyboardShortcut(.space, modifiers: [])
                 .disabled(model.selectedStage != .quickReview || model.currentReviewItem == nil)
 
                 Button("Mark Never Used") {
                     model.markCurrentReviewItem(as: .neverUsed)
                 }
-                .keyboardShortcut("n", modifiers: [])
                 .disabled(model.selectedStage != .quickReview || model.currentReviewItem == nil)
 
                 Button("Skip Item") {
                     model.skipCurrentReviewItem()
                 }
-                .keyboardShortcut("s", modifiers: [])
                 .disabled(model.selectedStage != .quickReview || model.currentReviewItem == nil)
             }
         }
     }
 }
-

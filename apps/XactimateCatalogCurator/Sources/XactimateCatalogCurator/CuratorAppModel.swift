@@ -2,6 +2,15 @@ import AppKit
 import Foundation
 import SwiftUI
 
+struct ActivityState: Equatable {
+    var title: String
+    var detail: String
+    var progressValue: Double?
+    var progressTotal: Double?
+
+    static let idle = ActivityState(title: "Working...", detail: "", progressValue: nil, progressTotal: nil)
+}
+
 enum CuratorStage: Hashable {
     case importData
     case quickReview
@@ -33,6 +42,7 @@ final class CuratorAppModel: ObservableObject {
     @Published var llmSettings: LLMSettings = .load()
     @Published var lastError: String = ""
     @Published var isBusy = false
+    @Published var activityState: ActivityState = .idle
     @Published var isRecordingTranscript = false
     @Published var isRecordingRecommendationQuery = false
     @Published var isScanningEstimatePhotos = false
@@ -82,7 +92,7 @@ final class CuratorAppModel: ObservableObject {
     }
 
     func chooseWorkbook(_ url: URL) {
-        guard startWork() else { return }
+        guard startWork(title: "Preparing Workbook Preview", detail: "Reading the Excel file and sampling rows for the preview.") else { return }
         defer { finishWork() }
         do {
             let workbook = try importer.prepareWorkbook(at: url)
@@ -97,7 +107,7 @@ final class CuratorAppModel: ObservableObject {
     }
 
     func importSelectedWorkbook() {
-        guard let preview, let store, startWork() else { return }
+        guard let preview, let store, startWork(title: "Importing Workbook", detail: "Parsing rows and writing them into the curator database.") else { return }
         defer { finishWork() }
         do {
             let workbook: WorkbookImporter.PreparedWorkbook
@@ -119,7 +129,9 @@ final class CuratorAppModel: ObservableObject {
     }
 
     func markCurrentReviewItem(as status: UsageStatus) {
-        guard selectedStage == .quickReview, let item = currentReviewItem, let store, startWork() else { return }
+        guard selectedStage == .quickReview, let item = currentReviewItem, let store,
+              startWork(title: "Saving Review Decision", detail: "Updating \(item.displayCode) in the working set.")
+        else { return }
         defer { finishWork() }
         do {
             try store.mark(itemID: item.id, status: status)
@@ -131,7 +143,9 @@ final class CuratorAppModel: ObservableObject {
     }
 
     func skipCurrentReviewItem() {
-        guard selectedStage == .quickReview, let item = currentReviewItem, startWork() else { return }
+        guard selectedStage == .quickReview, let item = currentReviewItem,
+              startWork(title: "Skipping Item", detail: "Moving \(item.displayCode) to the back of the review queue.")
+        else { return }
         skippedReviewIDs.insert(item.id)
         finishWork()
         do {
@@ -142,7 +156,7 @@ final class CuratorAppModel: ObservableObject {
     }
 
     func refreshUsedItems() {
-        guard let store, startWork() else { return }
+        guard let store, startWork(title: "Refreshing Used Items", detail: "Loading your curated working set and saved scenarios.") else { return }
         defer { finishWork() }
         do {
             usedItems = try store.usedItems(search: noteSearchText)
@@ -163,7 +177,7 @@ final class CuratorAppModel: ObservableObject {
     }
 
     func selectUsedItem(id: Int64) {
-        guard startWork() else { return }
+        guard startWork(title: "Loading Item Detail", detail: "Pulling the line item and its saved scenarios into view.") else { return }
         defer { finishWork() }
         do {
             try loadUsedItem(id: id)
@@ -184,7 +198,9 @@ final class CuratorAppModel: ObservableObject {
     }
 
     func saveCurrentUsageNote() {
-        guard let store, let selectedUsedItemID, startWork() else { return }
+        guard let store, let selectedUsedItemID,
+              startWork(title: "Saving Usage Note", detail: "Writing the structured scenario into your catalog database.")
+        else { return }
         defer { finishWork() }
         let title = scenarioDraft.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else {
@@ -235,7 +251,7 @@ final class CuratorAppModel: ObservableObject {
     }
 
     func runRecommendations() {
-        guard let store, startWork() else { return }
+        guard let store, startWork(title: "Ranking Recommendations", detail: "Scoring your curated line items against the current scope.") else { return }
         defer { finishWork() }
 
         guard !recommendationQuery.combinedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -263,7 +279,9 @@ final class CuratorAppModel: ObservableObject {
     }
 
     func applyRecommendationFeedback(_ decision: RecommendationFeedbackDecision, for itemID: Int64) {
-        guard let store, startWork() else { return }
+        guard let store,
+              startWork(title: "Saving Recommendation Feedback", detail: "Updating the ranking signal and recalculating the candidate list.")
+        else { return }
         defer { finishWork() }
 
         do {
@@ -370,7 +388,7 @@ final class CuratorAppModel: ObservableObject {
             lastError = "Configure the OpenAI API key and cleanup model first."
             return
         }
-        guard startWork() else { return }
+        guard startWork(title: "Cleaning Transcript", detail: "Turning the raw voice note into structured estimating guidance.") else { return }
         let settings = llmSettings
         Task {
             do {
@@ -414,7 +432,7 @@ final class CuratorAppModel: ObservableObject {
             lastError = "Configure the OpenAI API key and transcription model first."
             return
         }
-        guard startWork() else { return }
+        guard startWork(title: "Starting Recording", detail: "Requesting microphone access and preparing the audio recorder.") else { return }
         Task {
             do {
                 _ = try await audioRecorder.startRecording()
@@ -441,7 +459,7 @@ final class CuratorAppModel: ObservableObject {
             lastError = "Configure the OpenAI API key and transcription model first."
             return
         }
-        guard startWork() else { return }
+        guard startWork(title: "Transcribing Recording", detail: "Uploading the audio and waiting for the transcript.") else { return }
         Task {
             do {
                 let audioURL = try await MainActor.run { try audioRecorder.stopRecording() }
@@ -475,7 +493,7 @@ final class CuratorAppModel: ObservableObject {
             lastError = "Configure the OpenAI API key and transcription model first."
             return
         }
-        guard startWork() else { return }
+        guard startWork(title: "Starting Voice Intake", detail: "Requesting microphone access and preparing the scope recorder.") else { return }
         Task {
             do {
                 _ = try await audioRecorder.startRecording()
@@ -498,7 +516,7 @@ final class CuratorAppModel: ObservableObject {
             lastError = "Configure the OpenAI API key and transcription model first."
             return
         }
-        guard startWork() else { return }
+        guard startWork(title: "Transcribing Scope Description", detail: "Uploading the recording and extracting the room description.") else { return }
         let settings = llmSettings
         Task {
             do {
@@ -512,6 +530,9 @@ final class CuratorAppModel: ObservableObject {
                 let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
                 if settings.hasCleanupConfiguration {
                     do {
+                        await MainActor.run {
+                            updateWork(title: "Structuring Recommendation Query", detail: "Turning the transcript into room, surface, damage type, and keywords.")
+                        }
                         let structured = try await llmCleaningService.structureRecommendationQuery(
                             transcript: trimmedTranscript,
                             settings: settings
@@ -554,7 +575,9 @@ final class CuratorAppModel: ObservableObject {
     }
 
     func deleteSelectedUsageNote() {
-        guard let store, let selectedUsageNoteID, let selectedUsedItemID, startWork() else { return }
+        guard let store, let selectedUsageNoteID, let selectedUsedItemID,
+              startWork(title: "Deleting Usage Note", detail: "Removing the selected scenario from your catalog.")
+        else { return }
         defer { finishWork() }
         do {
             try store.deleteUsageNote(id: selectedUsageNoteID)
@@ -573,7 +596,7 @@ final class CuratorAppModel: ObservableObject {
     }
 
     func exportCuratedJSON() {
-        guard let store, startWork() else { return }
+        guard let store, startWork(title: "Preparing Export", detail: "Collecting the curated working set and writing JSON to disk.") else { return }
         defer { finishWork() }
         do {
             let envelope = try store.exportCuratedJSON()
@@ -676,14 +699,35 @@ final class CuratorAppModel: ObservableObject {
         selectedStage = .recommendations
     }
 
-    private func startWork() -> Bool {
+    private func startWork(
+        title: String = "Working...",
+        detail: String = "",
+        progressValue: Double? = nil,
+        progressTotal: Double? = nil
+    ) -> Bool {
         guard !isBusy else { return false }
         isBusy = true
+        activityState = ActivityState(title: title, detail: detail, progressValue: progressValue, progressTotal: progressTotal)
         return true
+    }
+
+    private func updateWork(
+        title: String? = nil,
+        detail: String? = nil,
+        progressValue: Double? = nil,
+        progressTotal: Double? = nil
+    ) {
+        activityState = ActivityState(
+            title: title ?? activityState.title,
+            detail: detail ?? activityState.detail,
+            progressValue: progressValue ?? activityState.progressValue,
+            progressTotal: progressTotal ?? activityState.progressTotal
+        )
     }
 
     private func finishWork() {
         isBusy = false
+        activityState = .idle
     }
 
     private func applyPhotoOutcome(_ outcome: EstimatePhotoBatchOutcome) {
