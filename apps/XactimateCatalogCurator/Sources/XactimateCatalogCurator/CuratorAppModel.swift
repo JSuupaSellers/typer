@@ -7,6 +7,7 @@ enum CuratorStage: Hashable {
     case quickReview
     case usageNotes
     case estimatePhotos
+    case recommendations
 }
 
 @MainActor
@@ -26,6 +27,9 @@ final class CuratorAppModel: ObservableObject {
     @Published var estimatePhotoURLs: [URL] = []
     @Published var photoScanEntries: [PhotoScanEntry] = []
     @Published var photoScanSummary: PhotoScanSummary = .empty
+    @Published var recommendationQuery: RecommendationQuery = .empty
+    @Published var recommendationResults: [RecommendationCandidate] = []
+    @Published var selectedRecommendationItemID: Int64?
     @Published var llmSettings: LLMSettings = .load()
     @Published var lastError: String = ""
     @Published var isBusy = false
@@ -66,6 +70,14 @@ final class CuratorAppModel: ObservableObject {
     var reviewProgressText: String {
         guard stats.totalItems > 0 else { return "No imported items yet." }
         return "\(stats.reviewedItems) of \(stats.totalItems) reviewed"
+    }
+
+    var selectedRecommendation: RecommendationCandidate? {
+        if let selectedRecommendationItemID,
+           let selected = recommendationResults.first(where: { $0.id == selectedRecommendationItemID }) {
+            return selected
+        }
+        return recommendationResults.first
     }
 
     func chooseWorkbook(_ url: URL) {
@@ -181,6 +193,7 @@ final class CuratorAppModel: ObservableObject {
         do {
             let savedID = try store.saveUsageNote(for: selectedUsedItemID, draft: scenarioDraft)
             try loadUsedItem(id: selectedUsedItemID)
+            try refreshRecommendationsIfNeeded()
             selectedUsageNoteID = savedID
             if let note = usageNotes.first(where: { $0.id == savedID }) {
                 scenarioDraft = ScenarioDraft(record: note)
@@ -220,6 +233,51 @@ final class CuratorAppModel: ObservableObject {
         photoScanSummary = .empty
     }
 
+    func runRecommendations() {
+        guard let store, startWork() else { return }
+        defer { finishWork() }
+
+        guard !recommendationQuery.combinedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            lastError = "Describe the room or scope first so the app has something to rank."
+            return
+        }
+
+        do {
+            recommendationResults = try store.recommendations(for: recommendationQuery)
+            selectedRecommendationItemID = recommendationResults.first?.id
+            selectedStage = .recommendations
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func clearRecommendationQuery() {
+        recommendationQuery = .empty
+        recommendationResults = []
+        selectedRecommendationItemID = nil
+    }
+
+    func selectRecommendation(id: Int64) {
+        selectedRecommendationItemID = id
+    }
+
+    func applyRecommendationFeedback(_ decision: RecommendationFeedbackDecision, for itemID: Int64) {
+        guard let store, startWork() else { return }
+        defer { finishWork() }
+
+        do {
+            try store.recordRecommendationFeedback(for: itemID, query: recommendationQuery, decision: decision)
+            recommendationResults = try store.recommendations(for: recommendationQuery)
+            if recommendationResults.contains(where: { $0.id == itemID }) {
+                selectedRecommendationItemID = itemID
+            } else {
+                selectedRecommendationItemID = recommendationResults.first?.id
+            }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
     func analyzeSelectedEstimatePhotos() {
         guard let store else {
             lastError = "The catalog database is unavailable."
@@ -230,7 +288,7 @@ final class CuratorAppModel: ObservableObject {
             return
         }
         guard llmSettings.hasVisionConfiguration else {
-            lastError = "Configure the OpenAI API key and vision model first."
+            lastError = "Configure the Gemini API key and estimate photo model first."
             return
         }
 
@@ -316,6 +374,12 @@ final class CuratorAppModel: ObservableObject {
                     scenarioDraft.title = cleaned.title
                     scenarioDraft.tags = cleaned.tags
                     scenarioDraft.cleanedDescription = cleaned.cleanedDescription
+                    scenarioDraft.whenNotToUse = cleaned.whenNotToUse
+                    scenarioDraft.room = cleaned.room
+                    scenarioDraft.surface = cleaned.surface
+                    scenarioDraft.damageType = cleaned.damageType
+                    scenarioDraft.keywords = cleaned.keywords
+                    scenarioDraft.synonyms = cleaned.synonyms
                     scenarioDraft.aiHint = cleaned.aiHint
                     finishWork()
                 }
@@ -395,6 +459,7 @@ final class CuratorAppModel: ObservableObject {
         do {
             try store.deleteUsageNote(id: selectedUsageNoteID)
             try loadUsedItem(id: selectedUsedItemID)
+            try refreshRecommendationsIfNeeded()
             if let first = usageNotes.first {
                 self.selectedUsageNoteID = first.id
                 scenarioDraft = ScenarioDraft(record: first)
@@ -445,6 +510,7 @@ final class CuratorAppModel: ObservableObject {
             selectedUsageNoteID = nil
             scenarioDraft = .empty
         }
+        try refreshRecommendationsIfNeeded()
     }
 
     private func reloadStatsAndReview() throws {
@@ -483,6 +549,18 @@ final class CuratorAppModel: ObservableObject {
             selectedUsageNoteID = nil
             scenarioDraft = .empty
         }
+    }
+
+    private func refreshRecommendationsIfNeeded() throws {
+        guard let store else { throw CatalogStoreError.databaseUnavailable }
+        let hasQuery = !recommendationQuery.combinedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasQuery || !recommendationResults.isEmpty else { return }
+        recommendationResults = try store.recommendations(for: recommendationQuery)
+        if let selectedRecommendationItemID,
+           recommendationResults.contains(where: { $0.id == selectedRecommendationItemID }) {
+            return
+        }
+        selectedRecommendationItemID = recommendationResults.first?.id
     }
 
     private func startWork() -> Bool {

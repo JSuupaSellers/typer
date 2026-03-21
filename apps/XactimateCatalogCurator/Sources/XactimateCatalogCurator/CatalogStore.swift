@@ -61,6 +61,29 @@ final class CatalogStore {
                 t.column("updated_at", .text).notNull()
             }
         }
+        migrator.registerMigration("addStructuredUsageNoteFields") { db in
+            try db.alter(table: "usage_notes") { t in
+                t.add(column: "when_not_to_use", .text).notNull().defaults(to: "")
+                t.add(column: "room", .text).notNull().defaults(to: "")
+                t.add(column: "surface", .text).notNull().defaults(to: "")
+                t.add(column: "damage_type", .text).notNull().defaults(to: "")
+                t.add(column: "keywords", .text).notNull().defaults(to: "")
+                t.add(column: "synonyms", .text).notNull().defaults(to: "")
+            }
+        }
+        migrator.registerMigration("createRecommendationFeedbackTable") { db in
+            try db.create(table: "recommendation_feedback") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("item_id", .integer).notNull().indexed().references("catalog_items", onDelete: .cascade)
+                t.column("query_text", .text).notNull().defaults(to: "")
+                t.column("room", .text).notNull().defaults(to: "")
+                t.column("surface", .text).notNull().defaults(to: "")
+                t.column("damage_type", .text).notNull().defaults(to: "")
+                t.column("decision", .text).notNull()
+                t.column("created_at", .text).notNull()
+            }
+            try db.create(index: "recommendation_feedback_item_decision_idx", on: "recommendation_feedback", columns: ["item_id", "decision"])
+        }
         return migrator
     }
 
@@ -235,6 +258,12 @@ final class CatalogStore {
                 sql: """
                     SELECT id, item_id AS itemId, title, tags,
                            when_to_use AS whenToUse,
+                           when_not_to_use AS whenNotToUse,
+                           room,
+                           surface,
+                           damage_type AS damageType,
+                           keywords,
+                           synonyms,
                            voice_notes AS voiceNotes,
                            ai_hint AS aiHint,
                            created_at AS createdAt,
@@ -255,20 +284,52 @@ final class CatalogStore {
                 try db.execute(
                     sql: """
                         UPDATE usage_notes
-                        SET title = ?, tags = ?, when_to_use = ?, voice_notes = ?, ai_hint = ?, updated_at = ?
+                        SET title = ?, tags = ?, when_to_use = ?, when_not_to_use = ?, room = ?, surface = ?,
+                            damage_type = ?, keywords = ?, synonyms = ?, voice_notes = ?, ai_hint = ?, updated_at = ?
                         WHERE id = ? AND item_id = ?
                     """,
-                    arguments: [draft.title, draft.tags, draft.whenToUse, draft.voiceNotes, draft.aiHint, timestamp, id, itemID]
+                    arguments: [
+                        draft.title,
+                        draft.tags,
+                        draft.whenToUse,
+                        draft.whenNotToUse,
+                        draft.room,
+                        draft.surface,
+                        draft.damageType,
+                        draft.keywords,
+                        draft.synonyms,
+                        draft.voiceNotes,
+                        draft.aiHint,
+                        timestamp,
+                        id,
+                        itemID,
+                    ]
                 )
                 return id
             } else {
                 try db.execute(
                     sql: """
                         INSERT INTO usage_notes (
-                            item_id, title, tags, when_to_use, voice_notes, ai_hint, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            item_id, title, tags, when_to_use, when_not_to_use, room, surface,
+                            damage_type, keywords, synonyms, voice_notes, ai_hint, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    arguments: [itemID, draft.title, draft.tags, draft.whenToUse, draft.voiceNotes, draft.aiHint, timestamp, timestamp]
+                    arguments: [
+                        itemID,
+                        draft.title,
+                        draft.tags,
+                        draft.whenToUse,
+                        draft.whenNotToUse,
+                        draft.room,
+                        draft.surface,
+                        draft.damageType,
+                        draft.keywords,
+                        draft.synonyms,
+                        draft.voiceNotes,
+                        draft.aiHint,
+                        timestamp,
+                        timestamp,
+                    ]
                 )
                 return db.lastInsertedRowID
             }
@@ -341,6 +402,95 @@ final class CatalogStore {
         }
     }
 
+    func recommendations(for query: RecommendationQuery) throws -> [RecommendationCandidate] {
+        try dbQueue.read { db in
+            let usedItems = try CatalogItemDetail.fetchAll(
+                db,
+                sql: """
+                    SELECT id, category, selector, description, unit, details,
+                           usage_status AS usageStatus,
+                           source_file AS sourceFile, source_sheet AS sourceSheet, source_row AS sourceRow,
+                           decision_at AS decisionAt, raw_json AS rawJSON
+                    FROM catalog_items
+                    WHERE usage_status = ?
+                    ORDER BY category, selector, description
+                """,
+                arguments: [UsageStatus.usedBefore.rawValue]
+            )
+
+            let scenarios = try UsageScenarioRecord.fetchAll(
+                db,
+                sql: """
+                    SELECT id, item_id AS itemId, title, tags,
+                           when_to_use AS whenToUse,
+                           when_not_to_use AS whenNotToUse,
+                           room,
+                           surface,
+                           damage_type AS damageType,
+                           keywords,
+                           synonyms,
+                           voice_notes AS voiceNotes,
+                           ai_hint AS aiHint,
+                           created_at AS createdAt,
+                           updated_at AS updatedAt
+                    FROM usage_notes
+                    ORDER BY updated_at DESC, id DESC
+                """
+            )
+
+            let feedbackRollups = try RecommendationFeedbackRollup.fetchAll(
+                db,
+                sql: """
+                    SELECT
+                        item_id AS itemId,
+                        SUM(CASE WHEN decision = 'accepted' THEN 1 ELSE 0 END) AS acceptedCount,
+                        SUM(CASE WHEN decision = 'rejected' THEN 1 ELSE 0 END) AS rejectedCount
+                    FROM recommendation_feedback
+                    GROUP BY item_id
+                """
+            )
+
+            let scenariosByItemID = Dictionary(grouping: scenarios, by: \.itemId)
+            let feedbackByItemID = Dictionary(uniqueKeysWithValues: feedbackRollups.map { ($0.itemId, $0) })
+            let sources = usedItems.map { item in
+                let feedback = feedbackByItemID[item.id]
+                return RecommendationSourceItem(
+                    item: item,
+                    scenarios: scenariosByItemID[item.id] ?? [],
+                    acceptedCount: feedback?.acceptedCount ?? 0,
+                    rejectedCount: feedback?.rejectedCount ?? 0
+                )
+            }
+
+            return RecommendationEngine().recommend(query: query, sources: sources)
+        }
+    }
+
+    func recordRecommendationFeedback(
+        for itemID: Int64,
+        query: RecommendationQuery,
+        decision: RecommendationFeedbackDecision
+    ) throws {
+        try dbQueue.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO recommendation_feedback (
+                        item_id, query_text, room, surface, damage_type, decision, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    itemID,
+                    query.narrative.trimmingCharacters(in: .whitespacesAndNewlines),
+                    query.room.trimmingCharacters(in: .whitespacesAndNewlines),
+                    query.surface.trimmingCharacters(in: .whitespacesAndNewlines),
+                    query.damageType.trimmingCharacters(in: .whitespacesAndNewlines),
+                    decision.rawValue,
+                    Self.timestamp(),
+                ]
+            )
+        }
+    }
+
     func exportCuratedJSON() throws -> CuratedExportEnvelope {
         try dbQueue.read { db in
             let itemRows = try Row.fetchAll(
@@ -360,6 +510,12 @@ final class CatalogStore {
                     sql: """
                         SELECT id, item_id AS itemId, title, tags,
                                when_to_use AS whenToUse,
+                               when_not_to_use AS whenNotToUse,
+                               room,
+                               surface,
+                               damage_type AS damageType,
+                               keywords,
+                               synonyms,
                                voice_notes AS voiceNotes,
                                ai_hint AS aiHint,
                                created_at AS createdAt,
@@ -374,6 +530,12 @@ final class CatalogStore {
                         title: note.title,
                         tags: note.tags,
                         whenToUse: note.whenToUse,
+                        whenNotToUse: note.whenNotToUse,
+                        room: note.room,
+                        surface: note.surface,
+                        damageType: note.damageType,
+                        keywords: note.keywords,
+                        synonyms: note.synonyms,
                         voiceNotes: note.voiceNotes,
                         aiHint: note.aiHint
                     )
@@ -413,4 +575,10 @@ final class CatalogStore {
     private static func timestamp() -> String {
         ISO8601DateFormatter().string(from: Date())
     }
+}
+
+private struct RecommendationFeedbackRollup: FetchableRecord, Decodable {
+    let itemId: Int64
+    let acceptedCount: Int
+    let rejectedCount: Int
 }

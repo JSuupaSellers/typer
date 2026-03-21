@@ -27,9 +27,13 @@ struct ContentView: View {
                 EstimatePhotosStageView(isPhotoImporterPresented: $isPhotoImporterPresented)
                     .tabItem { Label("Estimate Photos", systemImage: "photo.on.rectangle.angled") }
                     .tag(CuratorStage.estimatePhotos)
+
+                RecommendationStageView()
+                    .tabItem { Label("Recommend", systemImage: "text.magnifyingglass") }
+                    .tag(CuratorStage.recommendations)
             }
             .padding(20)
-            .frame(minWidth: 1180, minHeight: 760)
+            .frame(minWidth: 1220, minHeight: 780)
             .animation(.easeInOut(duration: 0.28), value: model.selectedStage)
         }
         .toolbar {
@@ -63,7 +67,7 @@ struct ContentView: View {
                 }
                 .disabled(model.isBusy || model.isScanningEstimatePhotos || model.stats.usedItems == 0)
 
-                Button("OpenAI Settings") {
+                Button("AI Settings") {
                     isLLMSettingsPresented = true
                 }
                 .disabled(model.isBusy || model.isScanningEstimatePhotos)
@@ -309,6 +313,201 @@ private struct EstimatePhotosStageView: View {
                     }
                 }
                 .frame(minWidth: 320, idealWidth: 340)
+            }
+        }
+    }
+}
+
+private struct RecommendationStageView: View {
+    @EnvironmentObject private var model: CuratorAppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            StageHeroCard(
+                stage: .recommendations,
+                eyebrow: "Stage 5",
+                title: "Recommendation Sandbox",
+                subtitle: "Describe the scope the way you would in the field, and the app ranks CAT/SEL candidates from your curated playbook using structured scenarios plus feedback from your past accepts and rejects.",
+                metrics: [
+                    .init(label: "Used Items", value: "\(model.stats.usedItems)"),
+                    .init(label: "Scenarios", value: "\(model.stats.usageNoteCount)"),
+                    .init(label: "Candidates", value: "\(model.recommendationResults.count)"),
+                    .init(label: "Top Match", value: model.selectedRecommendation?.item.displayCode ?? "Waiting")
+                ]
+            )
+
+            HSplitView {
+                CuratorPanel(tint: CuratorStage.recommendations.theme.accent) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        PanelHeader(
+                            eyebrow: "Scope Intake",
+                            title: "Describe the estimate need",
+                            subtitle: "Use the structured fields when you know them, then add a freeform narrative the same way you would explain the room out loud."
+                        )
+
+                        HStack(spacing: 12) {
+                            TextField("Room / area", text: $model.recommendationQuery.room)
+                                .textFieldStyle(.roundedBorder)
+                            TextField("Surface", text: $model.recommendationQuery.surface)
+                                .textFieldStyle(.roundedBorder)
+                            TextField("Damage / repair type", text: $model.recommendationQuery.damageType)
+                                .textFieldStyle(.roundedBorder)
+                        }
+
+                        TextField("Keywords or estimator shorthand", text: $model.recommendationQuery.keywords)
+                            .textFieldStyle(.roundedBorder)
+
+                        Stepper(value: $model.recommendationQuery.maxResults, in: 3 ... 10) {
+                            Text("Show top \(model.recommendationQuery.maxResults) candidates")
+                        }
+
+                        SurfaceEditor(
+                            title: "Narrative",
+                            text: $model.recommendationQuery.narrative,
+                            tint: CuratorStage.recommendations.theme.secondaryAccent,
+                            minHeight: 220
+                        )
+
+                        HStack(spacing: 12) {
+                            Button {
+                                model.runRecommendations()
+                            } label: {
+                                Label("Rank Candidates", systemImage: "text.magnifyingglass")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+
+                            Button("Clear Query") {
+                                model.clearRecommendationQuery()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                        }
+
+                        InfoBadge(
+                            title: "How ranking works",
+                            value: "Structured room, surface, damage type, tags, keywords, synonyms, cleaned usage notes, and past accept/reject feedback all contribute to the score.",
+                            tint: CuratorStage.recommendations.theme.accent
+                        )
+                    }
+                }
+                .frame(minWidth: 320, idealWidth: 360)
+
+                CuratorPanel(tint: CuratorStage.recommendations.theme.secondaryAccent) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        PanelHeader(
+                            eyebrow: "Ranked Matches",
+                            title: "Top candidates",
+                            subtitle: "These results come from the used-item set only, so the sandbox stays aligned to your real estimating workflow."
+                        )
+
+                        if model.recommendationResults.isEmpty {
+                            ContentUnavailableView(
+                                "No ranked candidates yet",
+                                systemImage: "text.magnifyingglass",
+                                description: Text("Run a recommendation query to see the strongest CAT/SEL matches from your curated catalog.")
+                            )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            ScrollView {
+                                LazyVStack(alignment: .leading, spacing: 12) {
+                                    ForEach(model.recommendationResults) { candidate in
+                                        RecommendationCandidateCard(
+                                            candidate: candidate,
+                                            isSelected: candidate.id == model.selectedRecommendation?.id,
+                                            tint: CuratorStage.recommendations.theme.accent,
+                                            secondaryTint: CuratorStage.recommendations.theme.secondaryAccent,
+                                            onSelect: { model.selectRecommendation(id: candidate.id) },
+                                            onFeedback: { decision in
+                                                model.applyRecommendationFeedback(decision, for: candidate.id)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(minWidth: 420)
+
+                CuratorPanel(tint: CuratorStage.recommendations.theme.accent) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        PanelHeader(
+                            eyebrow: "Why It Matched",
+                            title: model.selectedRecommendation?.item.displayCode ?? "Recommendation detail",
+                            subtitle: "Inspect the reasoning, the saved scenario signals, and the feedback counts before you trust a suggestion."
+                        )
+
+                        if let candidate = model.selectedRecommendation {
+                            VStack(alignment: .leading, spacing: 14) {
+                                HStack(alignment: .top) {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(candidate.item.description)
+                                            .font(.system(.title3, design: .rounded, weight: .bold))
+                                        if !candidate.item.details.isEmpty {
+                                            Text(candidate.item.details)
+                                                .foregroundStyle(.secondary)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                    }
+                                    Spacer()
+                                    VStack(alignment: .trailing, spacing: 8) {
+                                        RecommendationConfidenceBadge(confidence: candidate.confidence, tint: CuratorStage.recommendations.theme.accent)
+                                        CapsuleBadge(text: candidate.item.unit.isEmpty ? "No unit" : candidate.item.unit, tint: CuratorStage.recommendations.theme.secondaryAccent)
+                                    }
+                                }
+
+                                HStack(spacing: 12) {
+                                    MetricCard(title: "Score", value: String(format: "%.1f", candidate.score), symbol: "dial.medium", tint: CuratorStage.recommendations.theme.accent)
+                                    MetricCard(title: "Accepted", value: "\(candidate.acceptedCount)", symbol: "hand.thumbsup", tint: CuratorStage.recommendations.theme.secondaryAccent)
+                                    MetricCard(title: "Rejected", value: "\(candidate.rejectedCount)", symbol: "hand.thumbsdown", tint: CuratorStage.recommendations.theme.accent)
+                                }
+
+                                DetailSurface(title: "Why it rose to the top", tint: CuratorStage.recommendations.theme.accent) {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        ForEach(candidate.reasons, id: \.self) { reason in
+                                            Text("• \(reason)")
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                        }
+                                    }
+                                }
+
+                                DetailSurface(title: "Matched terms", tint: CuratorStage.recommendations.theme.secondaryAccent) {
+                                    if candidate.matchedTerms.isEmpty {
+                                        Text("No matched terms were captured for this result.")
+                                            .foregroundStyle(.secondary)
+                                    } else {
+                                        WrapTagCloud(terms: candidate.matchedTerms, tint: CuratorStage.recommendations.theme.secondaryAccent)
+                                    }
+                                }
+
+                                DetailSurface(title: "Saved scenarios", tint: CuratorStage.recommendations.theme.accent) {
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        if candidate.highlights.isEmpty {
+                                            Text("This item does not have a saved scenario yet, so the score came mostly from the item text and prior feedback.")
+                                                .foregroundStyle(.secondary)
+                                        } else {
+                                            ForEach(candidate.highlights) { highlight in
+                                                RecommendationScenarioHighlightCard(
+                                                    highlight: highlight,
+                                                    tint: CuratorStage.recommendations.theme.secondaryAccent
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            ContentUnavailableView(
+                                "Select a recommendation",
+                                systemImage: "sparkles",
+                                description: Text("When results appear, pick one to inspect its supporting scenarios and feedback history.")
+                            )
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        }
+                    }
+                }
+                .frame(minWidth: 360, idealWidth: 400)
             }
         }
     }
@@ -601,12 +800,12 @@ private struct UsageNotesStageView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            StageHeroCard(
-                stage: .usageNotes,
-                eyebrow: "Stage 3",
-                title: "Capture the Estimating Playbook",
-                subtitle: "Record how you actually use each line item, let OpenAI transcribe the raw explanation, and clean it into guidance that can power later recommendations.",
-                metrics: [
+                StageHeroCard(
+                    stage: .usageNotes,
+                    eyebrow: "Stage 3",
+                    title: "Capture the Estimating Playbook",
+                    subtitle: "Record how you actually use each line item, let OpenAI transcribe the raw explanation, and turn it into structured guidance that can power later recommendations.",
+                    metrics: [
                     .init(label: "Used Items", value: "\(model.stats.usedItems)"),
                     .init(label: "Notes", value: "\(model.stats.usageNoteCount)"),
                     .init(label: "Voice", value: model.llmSettings.hasTranscriptionConfiguration ? "Ready" : "Setup")
@@ -753,6 +952,20 @@ private struct UsageNotesStageView: View {
                                         TextField("Tags", text: $model.scenarioDraft.tags)
                                             .textFieldStyle(.roundedBorder)
 
+                                        HStack(spacing: 12) {
+                                            TextField("Room / area", text: $model.scenarioDraft.room)
+                                                .textFieldStyle(.roundedBorder)
+                                            TextField("Surface", text: $model.scenarioDraft.surface)
+                                                .textFieldStyle(.roundedBorder)
+                                            TextField("Damage / repair type", text: $model.scenarioDraft.damageType)
+                                                .textFieldStyle(.roundedBorder)
+                                        }
+
+                                        TextField("Keywords", text: $model.scenarioDraft.keywords)
+                                            .textFieldStyle(.roundedBorder)
+                                        TextField("Synonyms / shorthand", text: $model.scenarioDraft.synonyms)
+                                            .textFieldStyle(.roundedBorder)
+
                                         HStack {
                                             Label(
                                                 model.llmSettings.hasTranscriptionConfiguration ? "Transcription ready" : "Transcription not configured",
@@ -782,6 +995,7 @@ private struct UsageNotesStageView: View {
 
                                         SurfaceEditor(title: "Raw voice transcript", text: $model.scenarioDraft.transcript, tint: CuratorStage.usageNotes.theme.accent)
                                         SurfaceEditor(title: "Cleaned usage description", text: $model.scenarioDraft.cleanedDescription, tint: CuratorStage.usageNotes.theme.secondaryAccent)
+                                        SurfaceEditor(title: "When not to use", text: $model.scenarioDraft.whenNotToUse, tint: CuratorStage.usageNotes.theme.accent, minHeight: 110)
                                         SurfaceEditor(title: "AI hint", text: $model.scenarioDraft.aiHint, tint: CuratorStage.usageNotes.theme.accent)
 
                                         HStack(spacing: 12) {
@@ -955,6 +1169,188 @@ private struct PhotoScanStatusBadge: View {
             return Color.green.opacity(0.18)
         case .failed:
             return Color.red.opacity(0.18)
+        }
+    }
+}
+
+private struct RecommendationCandidateCard: View {
+    let candidate: RecommendationCandidate
+    let isSelected: Bool
+    let tint: Color
+    let secondaryTint: Color
+    let onSelect: () -> Void
+    let onFeedback: (RecommendationFeedbackDecision) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(candidate.item.displayCode)
+                        .font(.system(.title3, design: .rounded, weight: .bold))
+                    Text(candidate.item.description)
+                        .font(.headline)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 8) {
+                    RecommendationConfidenceBadge(confidence: candidate.confidence, tint: tint)
+                    Text(String(format: "%.1f", candidate.score))
+                        .font(.system(.headline, design: .monospaced, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if !candidate.reasons.isEmpty {
+                Text(candidate.reasons.prefix(2).joined(separator: " "))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !candidate.matchedTerms.isEmpty {
+                WrapTagCloud(terms: Array(candidate.matchedTerms.prefix(6)), tint: secondaryTint)
+            }
+
+            HStack(spacing: 10) {
+                Button("Inspect") {
+                    onSelect()
+                }
+                .buttonStyle(.bordered)
+
+                Spacer()
+
+                Button {
+                    onFeedback(.accepted)
+                } label: {
+                    Label("Accept", systemImage: "hand.thumbsup")
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    onFeedback(.rejected)
+                } label: {
+                    Label("Reject", systemImage: "hand.thumbsdown")
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(isSelected ? tint.opacity(0.14) : secondaryTint.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder((isSelected ? tint : secondaryTint).opacity(0.22), lineWidth: isSelected ? 2 : 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .onTapGesture(perform: onSelect)
+    }
+}
+
+private struct RecommendationConfidenceBadge: View {
+    let confidence: RecommendationConfidence
+    let tint: Color
+
+    var body: some View {
+        Text(confidence.label)
+            .font(.caption.weight(.semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(fillColor))
+    }
+
+    private var fillColor: Color {
+        switch confidence {
+        case .high:
+            return tint.opacity(0.18)
+        case .medium:
+            return Color.orange.opacity(0.18)
+        case .low:
+            return Color.gray.opacity(0.16)
+        }
+    }
+}
+
+private struct RecommendationScenarioHighlightCard: View {
+    let highlight: RecommendationScenarioHighlight
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(highlight.title)
+                        .font(.headline)
+                    if !highlight.whenToUse.isEmpty {
+                        Text(highlight.whenToUse)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer()
+                Text(String(format: "%.1f", highlight.score))
+                    .font(.system(.subheadline, design: .monospaced, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                if !highlight.room.isEmpty {
+                    CapsuleBadge(text: "Room: \(highlight.room)", tint: tint)
+                }
+                if !highlight.surface.isEmpty {
+                    CapsuleBadge(text: "Surface: \(highlight.surface)", tint: tint)
+                }
+                if !highlight.damageType.isEmpty {
+                    CapsuleBadge(text: "Damage: \(highlight.damageType)", tint: tint)
+                }
+            }
+
+            if !highlight.matchedTerms.isEmpty {
+                WrapTagCloud(terms: highlight.matchedTerms, tint: tint)
+            }
+
+            if !highlight.whenNotToUse.isEmpty {
+                Text("Avoid when: \(highlight.whenNotToUse)")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if !highlight.aiHint.isEmpty {
+                Text("AI hint: \(highlight.aiHint)")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(tint.opacity(0.08))
+        )
+    }
+}
+
+private struct WrapTagCloud: View {
+    let terms: [String]
+    let tint: Color
+
+    private let columns = [GridItem(.adaptive(minimum: 84), spacing: 8)]
+
+    var body: some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+            ForEach(terms, id: \.self) { term in
+                Text(term)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .background(
+                        Capsule().fill(tint.opacity(0.14))
+                    )
+            }
         }
     }
 }
@@ -1385,6 +1781,12 @@ private extension CuratorStage {
                 accent: Color(red: 0.18, green: 0.47, blue: 0.26),
                 secondaryAccent: Color(red: 0.62, green: 0.42, blue: 0.12),
                 symbol: "photo.on.rectangle.angled"
+            )
+        case .recommendations:
+            return StageTheme(
+                accent: Color(red: 0.14, green: 0.23, blue: 0.46),
+                secondaryAccent: Color(red: 0.82, green: 0.38, blue: 0.18),
+                symbol: "text.magnifyingglass"
             )
         }
     }

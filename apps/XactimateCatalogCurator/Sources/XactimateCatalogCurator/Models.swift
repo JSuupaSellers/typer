@@ -18,6 +18,20 @@ enum UsageStatus: String, CaseIterable, Codable {
     }
 }
 
+enum RecommendationFeedbackDecision: String, CaseIterable, Codable {
+    case accepted = "accepted"
+    case rejected = "rejected"
+
+    var label: String {
+        switch self {
+        case .accepted:
+            return "Accepted"
+        case .rejected:
+            return "Rejected"
+        }
+    }
+}
+
 struct ImportPreview: Equatable {
     let sourceURL: URL
     let sheetName: String
@@ -224,6 +238,12 @@ struct UsageScenarioRecord: Identifiable, FetchableRecord, Decodable, Hashable {
     let title: String
     let tags: String
     let whenToUse: String
+    let whenNotToUse: String
+    let room: String
+    let surface: String
+    let damageType: String
+    let keywords: String
+    let synonyms: String
     let voiceNotes: String
     let aiHint: String
     let createdAt: String
@@ -248,10 +268,22 @@ struct LLMSettings: Codable, Equatable {
     - title
     - tags
     - cleaned_description
+    - when_not_to_use
+    - room
+    - surface
+    - damage_type
+    - keywords
+    - synonyms
     - ai_hint
 
     Rules:
     - cleaned_description should be a concise, practical summary of when and why the item is used.
+    - when_not_to_use should briefly explain when this line item would be the wrong choice.
+    - room should be the most likely room or area if the transcript implies one.
+    - surface should be the affected surface or component if the transcript implies one.
+    - damage_type should summarize the repair or damage pattern if present.
+    - keywords should be a comma-separated list of short matching terms.
+    - synonyms should be a comma-separated list of alternate phrases an estimator might say.
     - tags should be a short comma-separated list.
     - ai_hint should help a later estimating model choose this item appropriately.
     - Do not invent facts that are not supported by the transcript or line-item context.
@@ -310,12 +342,24 @@ struct CleanedUsageNoteResult: Codable, Equatable {
     let title: String
     let tags: String
     let cleanedDescription: String
+    let whenNotToUse: String
+    let room: String
+    let surface: String
+    let damageType: String
+    let keywords: String
+    let synonyms: String
     let aiHint: String
 
     enum CodingKeys: String, CodingKey {
         case title
         case tags
         case cleanedDescription = "cleaned_description"
+        case whenNotToUse = "when_not_to_use"
+        case room
+        case surface
+        case damageType = "damage_type"
+        case keywords
+        case synonyms
         case aiHint = "ai_hint"
     }
 }
@@ -325,6 +369,12 @@ struct ScenarioDraft: Equatable {
     var title: String = ""
     var tags: String = ""
     var whenToUse: String = ""
+    var whenNotToUse: String = ""
+    var room: String = ""
+    var surface: String = ""
+    var damageType: String = ""
+    var keywords: String = ""
+    var synonyms: String = ""
     var voiceNotes: String = ""
     var aiHint: String = ""
 
@@ -337,6 +387,12 @@ struct ScenarioDraft: Equatable {
         title: String,
         tags: String,
         whenToUse: String,
+        whenNotToUse: String,
+        room: String,
+        surface: String,
+        damageType: String,
+        keywords: String,
+        synonyms: String,
         voiceNotes: String,
         aiHint: String
     ) {
@@ -344,6 +400,12 @@ struct ScenarioDraft: Equatable {
         self.title = title
         self.tags = tags
         self.whenToUse = whenToUse
+        self.whenNotToUse = whenNotToUse
+        self.room = room
+        self.surface = surface
+        self.damageType = damageType
+        self.keywords = keywords
+        self.synonyms = synonyms
         self.voiceNotes = voiceNotes
         self.aiHint = aiHint
     }
@@ -353,6 +415,12 @@ struct ScenarioDraft: Equatable {
         title = record.title
         tags = record.tags
         whenToUse = record.whenToUse
+        whenNotToUse = record.whenNotToUse
+        room = record.room
+        surface = record.surface
+        damageType = record.damageType
+        keywords = record.keywords
+        synonyms = record.synonyms
         voiceNotes = record.voiceNotes
         aiHint = record.aiHint
     }
@@ -366,6 +434,61 @@ struct ScenarioDraft: Equatable {
         get { whenToUse }
         set { whenToUse = newValue }
     }
+}
+
+struct RecommendationQuery: Equatable {
+    var narrative: String = ""
+    var room: String = ""
+    var surface: String = ""
+    var damageType: String = ""
+    var keywords: String = ""
+    var maxResults: Int = 5
+
+    static let empty = RecommendationQuery()
+
+    var combinedText: String {
+        [narrative, room, surface, damageType, keywords]
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
+}
+
+enum RecommendationConfidence: String, Equatable {
+    case high
+    case medium
+    case low
+
+    var label: String {
+        rawValue.capitalized
+    }
+}
+
+struct RecommendationScenarioHighlight: Identifiable, Equatable {
+    let id: Int64
+    let title: String
+    let whenToUse: String
+    let whenNotToUse: String
+    let room: String
+    let surface: String
+    let damageType: String
+    let keywords: String
+    let synonyms: String
+    let aiHint: String
+    let matchedTerms: [String]
+    let score: Double
+}
+
+struct RecommendationCandidate: Identifiable, Equatable {
+    let id: Int64
+    let item: CatalogItemDetail
+    let score: Double
+    let confidence: RecommendationConfidence
+    let matchedTerms: [String]
+    let reasons: [String]
+    let highlights: [RecommendationScenarioHighlight]
+    let acceptedCount: Int
+    let rejectedCount: Int
 }
 
 struct CuratedExportEnvelope: Codable {
@@ -389,6 +512,12 @@ struct CuratedUsageNote: Codable {
     let title: String
     let tags: String
     let whenToUse: String
+    let whenNotToUse: String
+    let room: String
+    let surface: String
+    let damageType: String
+    let keywords: String
+    let synonyms: String
     let voiceNotes: String
     let aiHint: String
 }
