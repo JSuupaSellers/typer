@@ -85,61 +85,58 @@ final class CatalogStore {
         var inserted = 0
         var updated = 0
         let timestamp = Self.timestamp()
+        let sourceFile = preview.sourceURL.lastPathComponent
         try dbQueue.write { db in
+            var existingFingerprints = Set(try String.fetchAll(db, sql: "SELECT fingerprint FROM catalog_items"))
+            let upsertStatement = try db.makeStatement(
+                sql: """
+                INSERT INTO catalog_items (
+                    fingerprint, source_file, source_sheet, source_row, category, selector,
+                    description, unit, details, usage_status, decision_at, raw_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(fingerprint) DO UPDATE SET
+                    source_file = excluded.source_file,
+                    source_sheet = excluded.source_sheet,
+                    source_row = excluded.source_row,
+                    category = excluded.category,
+                    selector = excluded.selector,
+                    description = excluded.description,
+                    unit = excluded.unit,
+                    details = excluded.details,
+                    raw_json = excluded.raw_json,
+                    updated_at = excluded.updated_at
+                """
+            )
+
             for row in rows {
                 let fingerprint = Self.fingerprint(for: row)
-                let existing = try Row.fetchOne(db, sql: "SELECT id FROM catalog_items WHERE fingerprint = ?", arguments: [fingerprint])
                 let rawJSON = try Self.rawJSONString(from: row.rawFields)
-                if existing == nil {
-                    inserted += 1
-                    try db.execute(
-                        sql: """
-                        INSERT INTO catalog_items (
-                            fingerprint, source_file, source_sheet, source_row, category, selector,
-                            description, unit, details, usage_status, decision_at, raw_json, created_at, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        arguments: [
-                            fingerprint,
-                            preview.sourceURL.lastPathComponent,
-                            preview.sheetName,
-                            row.sourceRow,
-                            row.category,
-                            row.selector,
-                            row.description,
-                            row.unit,
-                            row.details,
-                            UsageStatus.unreviewed.rawValue,
-                            "",
-                            rawJSON,
-                            timestamp,
-                            timestamp
-                        ]
-                    )
-                } else {
+
+                if existingFingerprints.contains(fingerprint) {
                     updated += 1
-                    try db.execute(
-                        sql: """
-                        UPDATE catalog_items
-                        SET source_file = ?, source_sheet = ?, source_row = ?, category = ?, selector = ?,
-                            description = ?, unit = ?, details = ?, raw_json = ?, updated_at = ?
-                        WHERE fingerprint = ?
-                        """,
-                        arguments: [
-                            preview.sourceURL.lastPathComponent,
-                            preview.sheetName,
-                            row.sourceRow,
-                            row.category,
-                            row.selector,
-                            row.description,
-                            row.unit,
-                            row.details,
-                            rawJSON,
-                            timestamp,
-                            fingerprint
-                        ]
-                    )
+                } else {
+                    inserted += 1
+                    existingFingerprints.insert(fingerprint)
                 }
+
+                try upsertStatement.execute(
+                    arguments: [
+                        fingerprint,
+                        sourceFile,
+                        preview.sheetName,
+                        row.sourceRow,
+                        row.category,
+                        row.selector,
+                        row.description,
+                        row.unit,
+                        row.details,
+                        UsageStatus.unreviewed.rawValue,
+                        "",
+                        rawJSON,
+                        timestamp,
+                        timestamp,
+                    ]
+                )
             }
         }
         return ImportResultSummary(

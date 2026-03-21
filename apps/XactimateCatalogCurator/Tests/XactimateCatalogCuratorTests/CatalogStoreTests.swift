@@ -63,6 +63,59 @@ func storeImportsRowsAndExportsUsedItems() throws {
 }
 
 @Test
+func repeatedImportUsesUpsertAndPreservesDecisions() throws {
+    let tempDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempDirectory) }
+
+    let databaseURL = tempDirectory.appendingPathComponent("catalog.sqlite")
+    let store = try CatalogStore(databaseURL: databaseURL)
+
+    let preview = ImportPreview(
+        sourceURL: tempDirectory.appendingPathComponent("Xactimate Line Items.xlsx"),
+        sheetName: "Sheet1",
+        headers: ["CAT", "SEL", "Discription", "QTY Type", "Details"],
+        rowCount: 2,
+        sampleRows: []
+    )
+    let rows = [
+        ParsedCatalogRow(
+            sourceRow: 2,
+            category: "PNT",
+            selector: "SP",
+            description: "Paint ceiling",
+            unit: "SF",
+            details: "Paint existing ceiling surface",
+            rawFields: ["CAT": "PNT", "SEL": "SP"]
+        ),
+        ParsedCatalogRow(
+            sourceRow: 3,
+            category: "DRY",
+            selector: "PCH",
+            description: "Drywall patch 2x2",
+            unit: "EA",
+            details: "Patch small ceiling opening",
+            rawFields: ["CAT": "DRY", "SEL": "PCH"]
+        )
+    ]
+
+    let firstImport = try store.importRows(rows, preview: preview)
+    #expect(firstImport.insertedCount == 2)
+    #expect(firstImport.updatedCount == 0)
+
+    let firstItem = try #require(try store.nextUnreviewedItem(excluding: []))
+    try store.mark(itemID: firstItem.id, status: .usedBefore)
+
+    let secondImport = try store.importRows(rows, preview: preview)
+    #expect(secondImport.insertedCount == 0)
+    #expect(secondImport.updatedCount == 2)
+
+    let usedItems = try store.usedItems(search: "")
+    #expect(usedItems.contains(where: { $0.id == firstItem.id }))
+}
+
+@Test
 func workbookPreviewTypeIsEquatable() {
     let url = URL(fileURLWithPath: "/tmp/example.xlsx")
     let left = ImportPreview(sourceURL: url, sheetName: "Sheet1", headers: ["CAT"], rowCount: 1, sampleRows: [])

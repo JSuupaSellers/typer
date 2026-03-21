@@ -22,6 +22,26 @@ enum WorkbookImportError: LocalizedError {
 }
 
 struct WorkbookImporter {
+    struct PreparedWorkbook {
+        let sourceURL: URL
+        let sheetName: String
+        let headers: [String]
+        let dataRows: [[String]]
+
+        var preview: ImportPreview {
+            let samples = dataRows.prefix(5).map { row in
+                Dictionary(uniqueKeysWithValues: zip(headers, row))
+            }
+            return ImportPreview(
+                sourceURL: sourceURL,
+                sheetName: sheetName,
+                headers: headers,
+                rowCount: dataRows.count,
+                sampleRows: Array(samples)
+            )
+        }
+    }
+
     private enum ColumnKey: String, CaseIterable {
         case category
         case selector
@@ -51,37 +71,32 @@ struct WorkbookImporter {
         let dataRows: [[String]]
     }
 
-    func previewWorkbook(at url: URL) throws -> ImportPreview {
+    func prepareWorkbook(at url: URL) throws -> PreparedWorkbook {
         let parsedSheet = try loadSheet(at: url)
-        let samples = parsedSheet.dataRows.prefix(5).map { row in
-            Dictionary(uniqueKeysWithValues: zip(parsedSheet.headers, row))
-        }
-        return ImportPreview(
+        return PreparedWorkbook(
             sourceURL: url,
             sheetName: parsedSheet.sheetName,
             headers: parsedSheet.headers,
-            rowCount: parsedSheet.dataRows.count,
-            sampleRows: Array(samples)
+            dataRows: parsedSheet.dataRows
         )
     }
 
+    func previewWorkbook(at url: URL) throws -> ImportPreview {
+        try prepareWorkbook(at: url).preview
+    }
+
     func parseCatalogRows(at url: URL) throws -> (ImportPreview, [ParsedCatalogRow]) {
-        let parsedSheet = try loadSheet(at: url)
-        let mapping = try inferMapping(headers: parsedSheet.headers)
-        let preview = ImportPreview(
-            sourceURL: url,
-            sheetName: parsedSheet.sheetName,
-            headers: parsedSheet.headers,
-            rowCount: parsedSheet.dataRows.count,
-            sampleRows: Array(parsedSheet.dataRows.prefix(5).map { Dictionary(uniqueKeysWithValues: zip(parsedSheet.headers, $0)) })
-        )
-        let rows: [ParsedCatalogRow] = parsedSheet.dataRows.enumerated().compactMap { index, row in
-            let rowMap = rowMapForRow(headers: parsedSheet.headers, row: row)
-            let category = cleaned(rowMap[mapping[.category]!])
-            let selector = cleaned(rowMap[mapping[.selector]!])
-            let description = cleaned(rowMap[mapping[.description]!])
-            let unit = cleaned(rowMap[mapping[.unit]!])
-            let details = cleaned(rowMap[mapping[.details]!])
+        try parseCatalogRows(from: prepareWorkbook(at: url))
+    }
+
+    func parseCatalogRows(from workbook: PreparedWorkbook) throws -> (ImportPreview, [ParsedCatalogRow]) {
+        let mapping = try inferMappingIndices(headers: workbook.headers)
+        let rows: [ParsedCatalogRow] = workbook.dataRows.enumerated().compactMap { index, row in
+            let category = value(at: mapping[.category]!, in: row)
+            let selector = value(at: mapping[.selector]!, in: row)
+            let description = value(at: mapping[.description]!, in: row)
+            let unit = value(at: mapping[.unit]!, in: row)
+            let details = value(at: mapping[.details]!, in: row)
             guard ![category, selector, description, unit, details].allSatisfy(\.isEmpty) else {
                 return nil
             }
@@ -92,10 +107,10 @@ struct WorkbookImporter {
                 description: description,
                 unit: unit,
                 details: details,
-                rawFields: rowMap
+                rawFields: rowMapForRow(headers: workbook.headers, row: row)
             )
         }
-        return (preview, rows)
+        return (workbook.preview, rows)
     }
 
     private func loadSheet(at url: URL) throws -> ParsedSheet {
@@ -123,9 +138,9 @@ struct WorkbookImporter {
         guard let headerRow = trimmedRows.first else {
             throw WorkbookImportError.worksheetHasNoRows
         }
-        let headers = headerRow.map(cleaned)
+        let headers = headerRow
         let dataRows = trimmedRows.dropFirst().filter { row in
-            row.contains { !cleaned($0).isEmpty }
+            row.contains { !$0.isEmpty }
         }
         return ParsedSheet(sheetName: entry.name ?? "Sheet1", headers: headers, dataRows: Array(dataRows))
     }
@@ -153,7 +168,7 @@ struct WorkbookImporter {
 
     private func trimTrailingEmptyColumns(_ rows: [[String]]) -> [[String]] {
         let maxUsedIndex = rows.reduce(0) { runningMax, row in
-            let rowLast = row.lastIndex(where: { !cleaned($0).isEmpty }).map { $0 + 1 } ?? 0
+            let rowLast = row.lastIndex(where: { !$0.isEmpty }).map { $0 + 1 } ?? 0
             return max(runningMax, rowLast)
         }
         guard maxUsedIndex > 0 else { return rows }
@@ -162,15 +177,15 @@ struct WorkbookImporter {
         }
     }
 
-    private func inferMapping(headers: [String]) throws -> [ColumnKey: String] {
+    private func inferMappingIndices(headers: [String]) throws -> [ColumnKey: Int] {
         let normalizedHeaders = headers.map { cleaned($0).lowercased() }
-        var mapping: [ColumnKey: String] = [:]
+        var mapping: [ColumnKey: Int] = [:]
         var missing: [String] = []
         for key in ColumnKey.allCases {
             if let matchIndex = normalizedHeaders.firstIndex(where: { header in
                 key.aliases.contains(header)
             }) {
-                mapping[key] = headers[matchIndex]
+                mapping[key] = matchIndex
             } else {
                 missing.append(key.rawValue)
             }
@@ -183,10 +198,16 @@ struct WorkbookImporter {
 
     private func rowMapForRow(headers: [String], row: [String]) -> [String: String] {
         var result: [String: String] = [:]
+        result.reserveCapacity(headers.count)
         for (index, header) in headers.enumerated() {
-            result[header] = index < row.count ? cleaned(row[index]) : ""
+            result[header] = value(at: index, in: row)
         }
         return result
+    }
+
+    private func value(at index: Int, in row: [String]) -> String {
+        guard index < row.count else { return "" }
+        return row[index]
     }
 
     private func cleaned(_ value: String?) -> String {
@@ -200,4 +221,3 @@ struct WorkbookImporter {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
-

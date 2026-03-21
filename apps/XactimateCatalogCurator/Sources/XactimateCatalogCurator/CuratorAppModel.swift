@@ -32,6 +32,7 @@ final class CuratorAppModel: ObservableObject {
     private let llmCleaningService = LLMCleaningService()
     private let transcriptionService = OpenAITranscriptionService()
     private let store: CatalogStore?
+    private var preparedWorkbook: WorkbookImporter.PreparedWorkbook?
     private var skippedReviewIDs: Set<Int64> = []
 
     init() {
@@ -66,10 +67,13 @@ final class CuratorAppModel: ObservableObject {
         guard startWork() else { return }
         defer { finishWork() }
         do {
-            preview = try importer.previewWorkbook(at: url)
+            let workbook = try importer.prepareWorkbook(at: url)
+            preparedWorkbook = workbook
+            preview = workbook.preview
             importSummary = nil
             selectedStage = .importData
         } catch {
+            preparedWorkbook = nil
             lastError = error.localizedDescription
         }
     }
@@ -78,7 +82,14 @@ final class CuratorAppModel: ObservableObject {
         guard let preview, let store, startWork() else { return }
         defer { finishWork() }
         do {
-            let (resolvedPreview, rows) = try importer.parseCatalogRows(at: preview.sourceURL)
+            let workbook: WorkbookImporter.PreparedWorkbook
+            if let preparedWorkbook, preparedWorkbook.sourceURL == preview.sourceURL {
+                workbook = preparedWorkbook
+            } else {
+                workbook = try importer.prepareWorkbook(at: preview.sourceURL)
+                self.preparedWorkbook = workbook
+            }
+            let (resolvedPreview, rows) = try importer.parseCatalogRows(from: workbook)
             let summary = try store.importRows(rows, preview: resolvedPreview)
             importSummary = summary
             skippedReviewIDs.removeAll()
