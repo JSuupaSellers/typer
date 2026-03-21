@@ -20,6 +20,29 @@ struct OpenAITranscriptionService {
         item: CatalogItemDetail,
         settings: LLMSettings
     ) async throws -> String {
+        try await transcribe(
+            fileURL: fileURL,
+            settings: settings,
+            prompt: prompt(for: settings.transcriptionModel.trimmingCharacters(in: .whitespacesAndNewlines), item: item)
+        )
+    }
+
+    func transcribeRecommendationAudio(
+        fileURL: URL,
+        settings: LLMSettings
+    ) async throws -> String {
+        try await transcribe(
+            fileURL: fileURL,
+            settings: settings,
+            prompt: recommendationPrompt(for: settings.transcriptionModel.trimmingCharacters(in: .whitespacesAndNewlines))
+        )
+    }
+
+    private func transcribe(
+        fileURL: URL,
+        settings: LLMSettings,
+        prompt: String
+    ) async throws -> String {
         let transcriptionModel = settings.transcriptionModel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let endpoint = URL(string: settings.baseURL.trimmingCharacters(in: .whitespacesAndNewlines))?
             .appending(path: "audio/transcriptions")
@@ -29,10 +52,7 @@ struct OpenAITranscriptionService {
 
         var form = MultipartFormData()
         form.addField(named: "model", value: transcriptionModel)
-        form.addField(
-            named: "prompt",
-            value: prompt(for: transcriptionModel, item: item)
-        )
+        form.addField(named: "prompt", value: prompt)
         form.addField(named: "response_format", value: "json")
         try form.addFile(
             named: "file",
@@ -81,6 +101,30 @@ struct OpenAITranscriptionService {
         }
 
         return "This audio is about the Xactimate line item \(item.displayCode) \(item.description). Keep line-item terms, measurements, and restoration vocabulary accurate."
+    }
+
+    private func recommendationPrompt(for transcriptionModel: String) -> String {
+        let keywords = [
+            "Xactimate",
+            "room",
+            "ceiling",
+            "wall",
+            "baseboard",
+            "paint",
+            "drywall",
+            "patch",
+            "picture frame",
+            "texture",
+            "estimate",
+            "category",
+            "selector",
+        ]
+
+        if transcriptionModel == "whisper-1" {
+            return keywords.joined(separator: ", ")
+        }
+
+        return "This audio is an adjuster describing room damage and repair scope for Xactimate line-item lookup. Keep room names, surfaces, dimensions, CAT/SEL shorthand, and restoration vocabulary accurate."
     }
 }
 

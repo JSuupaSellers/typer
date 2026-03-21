@@ -259,8 +259,21 @@ struct LLMSettings: Codable, Equatable {
     var cleanupModel: String = ""
     var estimatePhotoPrompt: String = Self.defaultEstimatePhotoPrompt
     var systemPrompt: String = Self.defaultPrompt
+    var recommendationPrompt: String = Self.defaultRecommendationPrompt
 
     static let defaultsKey = "llm-settings"
+
+    enum CodingKeys: String, CodingKey {
+        case baseURL
+        case apiKey
+        case geminiAPIKey
+        case estimatePhotoModel
+        case transcriptionModel
+        case cleanupModel
+        case estimatePhotoPrompt
+        case systemPrompt
+        case recommendationPrompt
+    }
 
     static let defaultPrompt = """
     You clean up a user's spoken transcript about when a Xactimate line item is used.
@@ -301,6 +314,24 @@ struct LLMSettings: Codable, Equatable {
     - The note should briefly describe what was visible, or say that no clear CAT/SEL pairs were found.
     """
 
+    static let defaultRecommendationPrompt = """
+    You convert an adjuster's spoken room description into a structured recommendation query for Xactimate line-item lookup.
+    Return JSON only with keys:
+    - narrative
+    - room
+    - surface
+    - damage_type
+    - keywords
+
+    Rules:
+    - narrative should be a cleaned version of the spoken scope description.
+    - room should be the most likely room or area if one is stated, otherwise an empty string.
+    - surface should be the main affected surface or component if one is stated, otherwise an empty string.
+    - damage_type should summarize the repair or condition being described if one is stated, otherwise an empty string.
+    - keywords should be a short comma-separated list of search-friendly terms an estimator would use.
+    - Do not invent details that are not supported by the transcript.
+    """
+
     var hasVisionConfiguration: Bool {
         !geminiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !estimatePhotoModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -320,6 +351,21 @@ struct LLMSettings: Codable, Equatable {
 
     var isConfigured: Bool {
         hasTranscriptionConfiguration && hasCleanupConfiguration
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? "https://api.openai.com/v1"
+        apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
+        geminiAPIKey = try container.decodeIfPresent(String.self, forKey: .geminiAPIKey) ?? ""
+        estimatePhotoModel = try container.decodeIfPresent(String.self, forKey: .estimatePhotoModel) ?? "gemini-3-flash-preview"
+        transcriptionModel = try container.decodeIfPresent(String.self, forKey: .transcriptionModel) ?? "whisper-1"
+        cleanupModel = try container.decodeIfPresent(String.self, forKey: .cleanupModel) ?? ""
+        estimatePhotoPrompt = try container.decodeIfPresent(String.self, forKey: .estimatePhotoPrompt) ?? Self.defaultEstimatePhotoPrompt
+        systemPrompt = try container.decodeIfPresent(String.self, forKey: .systemPrompt) ?? Self.defaultPrompt
+        recommendationPrompt = try container.decodeIfPresent(String.self, forKey: .recommendationPrompt) ?? Self.defaultRecommendationPrompt
     }
 
     static func load() -> LLMSettings {
@@ -451,6 +497,22 @@ struct RecommendationQuery: Equatable {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
             .joined(separator: " ")
+    }
+}
+
+struct StructuredRecommendationQueryResult: Codable, Equatable {
+    let narrative: String
+    let room: String
+    let surface: String
+    let damageType: String
+    let keywords: String
+
+    enum CodingKeys: String, CodingKey {
+        case narrative
+        case room
+        case surface
+        case damageType = "damage_type"
+        case keywords
     }
 }
 

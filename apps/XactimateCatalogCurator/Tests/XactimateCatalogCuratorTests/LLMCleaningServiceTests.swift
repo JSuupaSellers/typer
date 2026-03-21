@@ -27,3 +27,17 @@ func parsesFencedJSONObjectFromLLM() throws {
     #expect(result.aiHint.contains("patch dimensions"))
     #expect(result.whenNotToUse.contains("entire panel"))
 }
+
+@Test
+func parsesStructuredRecommendationQueryFromLLM() throws {
+    let content = """
+    ```json
+    {"narrative":"Bedroom ceiling has a 2x2 patch, picture frame texture, and repaint.","room":"Bedroom","surface":"Ceiling","damage_type":"Patch and repaint","keywords":"2x2 patch,picture frame,ceiling paint"}
+    ```
+    """
+
+    let result = try LLMCleaningService.parseStructuredRecommendationQuery(from: content)
+    #expect(result.room == "Bedroom")
+    #expect(result.surface == "Ceiling")
+    #expect(result.damageType == "Patch and repaint")
+}

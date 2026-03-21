@@ -58,6 +58,8 @@ As of March 21, 2026, Google's Gemini 3 docs list model IDs such as `gemini-3-fl
 ### Stage 5
 
 - describe a room or scope with structured fields plus a freeform narrative
+- dictate the scope directly in the app and transcribe it with OpenAI
+- auto-structure the transcript into room, surface, damage type, and keywords when a cleanup model is configured
 - rank likely CAT/SEL candidates from the `Used Before` working set
 - use saved scenario fields such as room, surface, damage type, tags, keywords, synonyms, and exclusion notes
 - use accept / reject feedback to strengthen later ranking

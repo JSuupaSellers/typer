@@ -71,6 +71,44 @@ struct LLMCleaningService {
         return try Self.parseCleanedResult(from: content)
     }
 
+    func structureRecommendationQuery(
+        transcript: String,
+        settings: LLMSettings
+    ) async throws -> StructuredRecommendationQueryResult {
+        guard let endpoint = URL(string: settings.baseURL.trimmingCharacters(in: .whitespacesAndNewlines))?
+            .appending(path: "chat/completions")
+        else { throw LLMCleaningError.invalidEndpoint }
+
+        let payload = ChatCompletionsRequest(
+            model: settings.cleanupModel.trimmingCharacters(in: .whitespacesAndNewlines),
+            messages: [
+                .init(role: "system", content: settings.recommendationPrompt),
+                .init(role: "user", content: transcript),
+            ],
+            temperature: 0.1
+        )
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONEncoder().encode(payload)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
+            let body = String(decoding: data, as: UTF8.self)
+            throw NSError(domain: "LLMCleaningService", code: http.statusCode, userInfo: [
+                NSLocalizedDescriptionKey: body.isEmpty ? "The LLM API returned status \(http.statusCode)." : body
+            ])
+        }
+
+        let decoded = try JSONDecoder().decode(ChatCompletionsResponse.self, from: data)
+        guard let content = decoded.choices.first?.message.content else {
+            throw LLMCleaningError.missingChoice
+        }
+        return try Self.parseStructuredRecommendationQuery(from: content)
+    }
+
     static func parseCleanedResult(from content: String) throws -> CleanedUsageNoteResult {
         let stripped = stripMarkdownFences(from: content)
         guard !stripped.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -80,6 +118,17 @@ struct LLMCleaningService {
             throw LLMCleaningError.invalidResponse
         }
         return try JSONDecoder().decode(CleanedUsageNoteResult.self, from: data)
+    }
+
+    static func parseStructuredRecommendationQuery(from content: String) throws -> StructuredRecommendationQueryResult {
+        let stripped = stripMarkdownFences(from: content)
+        guard !stripped.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw LLMCleaningError.missingContent
+        }
+        guard let data = stripped.data(using: .utf8) else {
+            throw LLMCleaningError.invalidResponse
+        }
+        return try JSONDecoder().decode(StructuredRecommendationQueryResult.self, from: data)
     }
 
     private static func stripMarkdownFences(from content: String) -> String {

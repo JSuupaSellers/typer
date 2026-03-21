@@ -361,6 +361,22 @@ private struct RecommendationStageView: View {
                             Text("Show top \(model.recommendationQuery.maxResults) candidates")
                         }
 
+                        HStack {
+                            Label(
+                                model.llmSettings.hasTranscriptionConfiguration ? "Voice ready" : "Voice not configured",
+                                systemImage: model.llmSettings.hasTranscriptionConfiguration ? "waveform.badge.mic" : "exclamationmark.triangle"
+                            )
+                            .foregroundStyle(model.llmSettings.hasTranscriptionConfiguration ? CuratorStage.recommendations.theme.accent : .orange)
+
+                            Spacer()
+
+                            Label(
+                                model.llmSettings.hasCleanupConfiguration ? "Auto-structure ready" : "Narrative-only fallback",
+                                systemImage: model.llmSettings.hasCleanupConfiguration ? "slider.horizontal.3" : "text.alignleft"
+                            )
+                            .foregroundStyle(model.llmSettings.hasCleanupConfiguration ? CuratorStage.recommendations.theme.secondaryAccent : .secondary)
+                        }
+
                         SurfaceEditor(
                             title: "Narrative",
                             text: $model.recommendationQuery.narrative,
@@ -369,6 +385,24 @@ private struct RecommendationStageView: View {
                         )
 
                         HStack(spacing: 12) {
+                            if model.isRecordingRecommendationQuery {
+                                Button {
+                                    model.toggleRecommendationRecording()
+                                } label: {
+                                    Label("Stop Voice Intake", systemImage: "stop.circle")
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.large)
+                            } else {
+                                Button {
+                                    model.toggleRecommendationRecording()
+                                } label: {
+                                    Label("Record Scope", systemImage: "mic.circle")
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.large)
+                            }
+
                             Button {
                                 model.runRecommendations()
                             } label: {
@@ -1080,6 +1114,7 @@ private struct LLMSettingsSheet: View {
 
                         SurfaceEditor(title: "Estimate Photo Prompt", text: $settings.estimatePhotoPrompt, tint: CuratorStage.usageNotes.theme.accent, minHeight: 150)
                         SurfaceEditor(title: "System Prompt", text: $settings.systemPrompt, tint: CuratorStage.usageNotes.theme.secondaryAccent, minHeight: 200)
+                        SurfaceEditor(title: "Recommendation Prompt", text: $settings.recommendationPrompt, tint: CuratorStage.recommendations.theme.accent, minHeight: 170)
 
                         HStack {
                             Spacer()

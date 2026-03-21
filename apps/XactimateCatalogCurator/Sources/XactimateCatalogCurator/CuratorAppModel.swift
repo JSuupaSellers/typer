@@ -34,6 +34,7 @@ final class CuratorAppModel: ObservableObject {
     @Published var lastError: String = ""
     @Published var isBusy = false
     @Published var isRecordingTranscript = false
+    @Published var isRecordingRecommendationQuery = false
     @Published var isScanningEstimatePhotos = false
 
     private let importer = WorkbookImporter()
@@ -339,6 +340,14 @@ final class CuratorAppModel: ObservableObject {
         }
     }
 
+    func toggleRecommendationRecording() {
+        if isRecordingRecommendationQuery {
+            stopRecommendationRecordingAndTranscribe()
+        } else {
+            startRecommendationRecording()
+        }
+    }
+
     func toggleTranscriptRecording() {
         if isRecordingTranscript {
             stopRecordingAndTranscribe()
@@ -393,6 +402,10 @@ final class CuratorAppModel: ObservableObject {
     }
 
     private func startRecordingTranscript() {
+        guard !isRecordingRecommendationQuery else {
+            lastError = "Finish the recommendation recording first."
+            return
+        }
         guard selectedUsedItem != nil else {
             lastError = "Choose a used item before recording."
             return
@@ -446,6 +459,93 @@ final class CuratorAppModel: ObservableObject {
             } catch {
                 await MainActor.run {
                     isRecordingTranscript = false
+                    lastError = error.localizedDescription
+                    finishWork()
+                }
+            }
+        }
+    }
+
+    private func startRecommendationRecording() {
+        guard !isRecordingTranscript else {
+            lastError = "Finish the usage-note recording first."
+            return
+        }
+        guard llmSettings.hasTranscriptionConfiguration else {
+            lastError = "Configure the OpenAI API key and transcription model first."
+            return
+        }
+        guard startWork() else { return }
+        Task {
+            do {
+                _ = try await audioRecorder.startRecording()
+                await MainActor.run {
+                    isRecordingRecommendationQuery = true
+                    finishWork()
+                }
+            } catch {
+                await MainActor.run {
+                    lastError = error.localizedDescription
+                    isRecordingRecommendationQuery = false
+                    finishWork()
+                }
+            }
+        }
+    }
+
+    private func stopRecommendationRecordingAndTranscribe() {
+        guard llmSettings.hasTranscriptionConfiguration else {
+            lastError = "Configure the OpenAI API key and transcription model first."
+            return
+        }
+        guard startWork() else { return }
+        let settings = llmSettings
+        Task {
+            do {
+                let audioURL = try await MainActor.run { try audioRecorder.stopRecording() }
+                let transcript = try await transcriptionService.transcribeRecommendationAudio(
+                    fileURL: audioURL,
+                    settings: settings
+                )
+                try? FileManager.default.removeItem(at: audioURL)
+
+                let trimmedTranscript = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+                if settings.hasCleanupConfiguration {
+                    do {
+                        let structured = try await llmCleaningService.structureRecommendationQuery(
+                            transcript: trimmedTranscript,
+                            settings: settings
+                        )
+                        await MainActor.run {
+                            isRecordingRecommendationQuery = false
+                            recommendationQuery.narrative = structured.narrative.trimmingCharacters(in: .whitespacesAndNewlines)
+                            recommendationQuery.room = structured.room.trimmingCharacters(in: .whitespacesAndNewlines)
+                            recommendationQuery.surface = structured.surface.trimmingCharacters(in: .whitespacesAndNewlines)
+                            recommendationQuery.damageType = structured.damageType.trimmingCharacters(in: .whitespacesAndNewlines)
+                            recommendationQuery.keywords = structured.keywords.trimmingCharacters(in: .whitespacesAndNewlines)
+                            try? refreshRecommendationsFromCurrentQuery()
+                            finishWork()
+                        }
+                    } catch {
+                        await MainActor.run {
+                            isRecordingRecommendationQuery = false
+                            recommendationQuery.narrative = trimmedTranscript
+                            try? refreshRecommendationsFromCurrentQuery()
+                            lastError = "The scope was transcribed, but the query structuring step failed: \(error.localizedDescription)"
+                            finishWork()
+                        }
+                    }
+                } else {
+                    await MainActor.run {
+                        isRecordingRecommendationQuery = false
+                        recommendationQuery.narrative = trimmedTranscript
+                        try? refreshRecommendationsFromCurrentQuery()
+                        finishWork()
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isRecordingRecommendationQuery = false
                     lastError = error.localizedDescription
                     finishWork()
                 }
@@ -561,6 +661,19 @@ final class CuratorAppModel: ObservableObject {
             return
         }
         selectedRecommendationItemID = recommendationResults.first?.id
+    }
+
+    private func refreshRecommendationsFromCurrentQuery() throws {
+        guard let store else { throw CatalogStoreError.databaseUnavailable }
+        let hasQuery = !recommendationQuery.combinedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasQuery else {
+            recommendationResults = []
+            selectedRecommendationItemID = nil
+            return
+        }
+        recommendationResults = try store.recommendations(for: recommendationQuery)
+        selectedRecommendationItemID = recommendationResults.first?.id
+        selectedStage = .recommendations
     }
 
     private func startWork() -> Bool {
