@@ -233,7 +233,8 @@ struct UsageScenarioRecord: Identifiable, FetchableRecord, Decodable, Hashable {
 struct LLMSettings: Codable, Equatable {
     var baseURL: String = "https://api.openai.com/v1"
     var apiKey: String = ""
-    var visionModel: String = "gpt-4.1-mini"
+    var geminiAPIKey: String = ""
+    var estimatePhotoModel: String = "gemini-3-flash-preview"
     var transcriptionModel: String = "whisper-1"
     var cleanupModel: String = ""
     var estimatePhotoPrompt: String = Self.defaultEstimatePhotoPrompt
@@ -269,9 +270,8 @@ struct LLMSettings: Codable, Equatable {
     """
 
     var hasVisionConfiguration: Bool {
-        !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !visionModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !geminiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        !estimatePhotoModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var hasTranscriptionConfiguration: Bool {

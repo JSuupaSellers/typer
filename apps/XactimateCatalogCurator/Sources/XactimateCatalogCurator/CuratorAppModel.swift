@@ -535,7 +535,7 @@ final class CuratorAppModel: ObservableObject {
             func enqueue(_ url: URL) {
                 group.addTask {
                     do {
-                        let extraction = try await OpenAIEstimatePhotoAnalysisService().analyzePhoto(
+                        let extraction = try await GeminiEstimatePhotoAnalysisService().analyzePhoto(
                             fileURL: url,
                             settings: settings
                         )

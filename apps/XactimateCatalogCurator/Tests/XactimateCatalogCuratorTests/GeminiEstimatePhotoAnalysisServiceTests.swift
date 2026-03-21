@@ -7,7 +7,7 @@ func parsesEstimatePhotoExtractionAndDeduplicatesCodes() throws {
     {"detected_codes":[{"category":"pnt","selector":"sp"},{"category":"PNT","selector":"SP"},{"category":"dry","selector":"pch"}],"note":"Visible line items on estimate page."}
     """
 
-    let result = try OpenAIEstimatePhotoAnalysisService.parseExtraction(from: output)
+    let result = try GeminiEstimatePhotoAnalysisService.parseExtraction(from: output)
 
     #expect(result.detectedCodes == [
         CatalogCode(category: "DRY", selector: "PCH"),

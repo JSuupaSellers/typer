@@ -141,7 +141,7 @@ private struct EstimatePhotosStageView: View {
                 stage: .estimatePhotos,
                 eyebrow: "Stage 4",
                 title: "Mine Existing Estimates",
-                subtitle: "Load batches of estimate photos, let OpenAI read the visible CAT/SEL pairs, deduplicate them across the set, and automatically mark matching catalog items as used.",
+                subtitle: "Load batches of estimate photos, let Gemini read the visible CAT/SEL pairs, deduplicate them across the set, and automatically mark matching catalog items as used.",
                 metrics: [
                     .init(label: "Photos", value: "\(model.photoScanSummary.totalPhotos)"),
                     .init(label: "Processed", value: "\(model.photoScanSummary.processedPhotos)"),
@@ -156,7 +156,7 @@ private struct EstimatePhotosStageView: View {
                         PanelHeader(
                             eyebrow: "Batch Input",
                             title: "Estimate photo set",
-                            subtitle: "This works best on straight-on estimate screenshots or document photos where CAT and SEL columns are readable."
+                            subtitle: "This works best on straight-on estimate screenshots or document photos where CAT and SEL columns are readable. Each image is sent to Gemini individually."
                         )
 
                         HStack(spacing: 12) {
@@ -189,7 +189,7 @@ private struct EstimatePhotosStageView: View {
                             Spacer()
 
                             Label(
-                                model.llmSettings.hasVisionConfiguration ? "Vision ready" : "Vision not configured",
+                                model.llmSettings.hasVisionConfiguration ? "Gemini ready" : "Gemini not configured",
                                 systemImage: model.llmSettings.hasVisionConfiguration ? "eye" : "exclamationmark.triangle"
                             )
                             .foregroundStyle(model.llmSettings.hasVisionConfiguration ? CuratorStage.estimatePhotos.theme.accent : .orange)
@@ -236,7 +236,7 @@ private struct EstimatePhotosStageView: View {
                         PanelHeader(
                             eyebrow: "Per Photo",
                             title: "Scan results",
-                            subtitle: "Each photo is analyzed individually so batches can scale to large estimate sets without one bad image blocking the whole run."
+                            subtitle: "Each photo is analyzed individually with Gemini so batches can scale to large estimate sets without one bad image blocking the whole run."
                         )
 
                         if model.photoScanEntries.isEmpty {
@@ -832,14 +832,14 @@ private struct LLMSettingsSheet: View {
             VStack(alignment: .leading, spacing: 18) {
                 StageHeroCard(
                     stage: .usageNotes,
-                    eyebrow: "OpenAI Configuration",
+                    eyebrow: "AI Configuration",
                     title: "Vision, voice, and cleanup",
-                    subtitle: "The app can analyze estimate photos with OpenAI vision, transcribe voice notes, and clean transcripts into structured usage guidance.",
+                    subtitle: "The app analyzes estimate photos with Gemini, then uses OpenAI for voice transcription and transcript cleanup.",
                     metrics: [
-                        .init(label: "Vision", value: settings.visionModel.isEmpty ? "Unset" : settings.visionModel),
+                        .init(label: "Gemini", value: settings.estimatePhotoModel.isEmpty ? "Unset" : settings.estimatePhotoModel),
                         .init(label: "Transcription", value: settings.transcriptionModel.isEmpty ? "Unset" : settings.transcriptionModel),
                         .init(label: "Cleanup", value: settings.cleanupModel.isEmpty ? "Unset" : settings.cleanupModel),
-                        .init(label: "API Key", value: settings.apiKey.isEmpty ? "Missing" : "Saved")
+                        .init(label: "OpenAI Key", value: settings.apiKey.isEmpty ? "Missing" : "Saved")
                     ]
                 )
 
@@ -847,9 +847,11 @@ private struct LLMSettingsSheet: View {
                     VStack(alignment: .leading, spacing: 14) {
                         TextField("OpenAI Base URL", text: $settings.baseURL)
                             .textFieldStyle(.roundedBorder)
-                        SecureField("API Key", text: $settings.apiKey)
+                        SecureField("OpenAI API Key", text: $settings.apiKey)
                             .textFieldStyle(.roundedBorder)
-                        TextField("Vision Model", text: $settings.visionModel)
+                        SecureField("Gemini API Key", text: $settings.geminiAPIKey)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("Estimate Photo Model", text: $settings.estimatePhotoModel)
                             .textFieldStyle(.roundedBorder)
                         TextField("Transcription Model (use whisper-1 for Whisper)", text: $settings.transcriptionModel)
                             .textFieldStyle(.roundedBorder)
@@ -858,7 +860,7 @@ private struct LLMSettingsSheet: View {
 
                         InfoBadge(
                             title: "Model note",
-                            value: "As of March 21, 2026, OpenAI's Whisper API model is whisper-1. OpenAI's image inputs accept base64 data URLs, and the latest models support text plus image input. This app defaults estimate-photo scanning to gpt-4.1-mini for cost and batch throughput.",
+                            value: "As of March 21, 2026, Google exposes Gemini 3 series model IDs like gemini-3-flash-preview and gemini-3.1-flash-lite-preview, not a literal model id named gemini-3.0. This app defaults estimate-photo scanning to gemini-3-flash-preview and keeps OpenAI for Whisper transcription and cleanup.",
                             tint: CuratorStage.usageNotes.theme.accent
                         )
 

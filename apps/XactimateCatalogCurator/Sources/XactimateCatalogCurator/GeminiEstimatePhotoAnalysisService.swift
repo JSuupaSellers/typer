@@ -12,7 +12,7 @@ enum EstimatePhotoAnalysisError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidEndpoint:
-            return "The OpenAI base URL is invalid."
+            return "The Gemini endpoint URL is invalid."
         case .couldNotPrepareImage:
             return "The image could not be prepared for analysis."
         case .missingOutput:
@@ -23,49 +23,46 @@ enum EstimatePhotoAnalysisError: LocalizedError {
     }
 }
 
-struct OpenAIEstimatePhotoAnalysisService {
+struct GeminiEstimatePhotoAnalysisService {
     func analyzePhoto(
         fileURL: URL,
         settings: LLMSettings
     ) async throws -> EstimatePhotoExtraction {
-        guard let endpoint = URL(string: settings.baseURL.trimmingCharacters(in: .whitespacesAndNewlines))?
-            .appending(path: "responses")
-        else {
+        let model = settings.estimatePhotoModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let endpoint = URL(string: "https://generativelanguage.googleapis.com/v1beta/models/\(model):generateContent") else {
             throw EstimatePhotoAnalysisError.invalidEndpoint
         }
 
         let preparedImage = try PreparedVisionImage.make(from: fileURL)
-        let payload = ResponsesRequest(
-            model: settings.visionModel.trimmingCharacters(in: .whitespacesAndNewlines),
-            input: [
-                .init(
-                    role: "user",
-                    content: [
-                        .text(text: userPrompt(for: fileURL, settings: settings)),
-                        .image(imageURL: preparedImage.dataURL, detail: "high"),
-                    ]
-                )
+        let payload = GeminiGenerateContentRequest(
+            contents: [
+                .init(parts: [
+                    .text(userPrompt(for: fileURL, settings: settings)),
+                    .inlineData(mimeType: preparedImage.mimeType, data: preparedImage.base64Data),
+                ])
             ],
-            text: .init(format: .catalogCodeSchema),
-            maxOutputTokens: 700
+            generationConfig: .catalogCodeExtraction
         )
 
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines))", forHTTPHeaderField: "Authorization")
+        request.setValue(settings.geminiAPIKey.trimmingCharacters(in: .whitespacesAndNewlines), forHTTPHeaderField: "x-goog-api-key")
         request.httpBody = try JSONEncoder().encode(payload)
 
         let (data, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
             let body = String(decoding: data, as: UTF8.self)
-            throw NSError(domain: "OpenAIEstimatePhotoAnalysisService", code: http.statusCode, userInfo: [
-                NSLocalizedDescriptionKey: body.isEmpty ? "The OpenAI vision API returned status \(http.statusCode)." : body
+            throw NSError(domain: "GeminiEstimatePhotoAnalysisService", code: http.statusCode, userInfo: [
+                NSLocalizedDescriptionKey: body.isEmpty ? "The Gemini API returned status \(http.statusCode)." : body
             ])
         }
 
-        let decoded = try JSONDecoder().decode(ResponsesCreateResponse.self, from: data)
-        guard let outputText = decoded.outputText?.trimmingCharacters(in: .whitespacesAndNewlines), !outputText.isEmpty else {
+        let decoded = try JSONDecoder().decode(GeminiGenerateContentResponse.self, from: data)
+        guard
+            let outputText = decoded.candidates?.first?.content?.parts?.compactMap(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines),
+            !outputText.isEmpty
+        else {
             throw EstimatePhotoAnalysisError.missingOutput
         }
 
@@ -104,7 +101,8 @@ struct OpenAIEstimatePhotoAnalysisService {
 }
 
 private struct PreparedVisionImage {
-    let dataURL: String
+    let mimeType: String
+    let base64Data: String
 
     static func make(from fileURL: URL) throws -> PreparedVisionImage {
         guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) else {
@@ -160,8 +158,7 @@ private struct PreparedVisionImage {
             throw EstimatePhotoAnalysisError.couldNotPrepareImage
         }
 
-        let base64 = jpegData.base64EncodedString()
-        return PreparedVisionImage(dataURL: "data:image/jpeg;base64,\(base64)")
+        return PreparedVisionImage(mimeType: "image/jpeg", base64Data: jpegData.base64EncodedString())
     }
 
     private static func scaledSize(for original: CGSize, maxDimension: CGFloat) -> CGSize {
@@ -176,50 +173,47 @@ private struct PreparedVisionImage {
     }
 }
 
-private struct ResponsesRequest: Encodable {
-    struct InputMessage: Encodable {
-        let role: String
-        let content: [InputContent]
+private struct GeminiGenerateContentRequest: Encodable {
+    struct Content: Encodable {
+        let parts: [Part]
     }
 
-    struct InputContent: Encodable {
-        let type: String
+    struct Part: Encodable {
         let text: String?
-        let imageURL: String?
-        let detail: String?
+        let inlineData: InlineData?
 
         enum CodingKeys: String, CodingKey {
-            case type
             case text
-            case imageURL = "image_url"
-            case detail
+            case inlineData = "inline_data"
         }
 
-        static func text(text: String) -> InputContent {
-            InputContent(type: "input_text", text: text, imageURL: nil, detail: nil)
+        static func text(_ text: String) -> Part {
+            Part(text: text, inlineData: nil)
         }
 
-        static func image(imageURL: String, detail: String) -> InputContent {
-            InputContent(type: "input_image", text: nil, imageURL: imageURL, detail: detail)
+        static func inlineData(mimeType: String, data: String) -> Part {
+            Part(text: nil, inlineData: InlineData(mimeType: mimeType, data: data))
         }
     }
 
-    struct TextConfiguration: Encodable {
-        let format: TextFormat
+    struct InlineData: Encodable {
+        let mimeType: String
+        let data: String
+
+        enum CodingKeys: String, CodingKey {
+            case mimeType = "mime_type"
+            case data
+        }
     }
 
-    struct TextFormat: Encodable {
-        let type: String
-        let name: String
-        let strict: Bool
-        let schema: JSONSchema
+    struct GenerationConfig: Encodable {
+        let responseMimeType: String
+        let responseJsonSchema: JSONSchema
 
-        static var catalogCodeSchema: TextFormat {
-            TextFormat(
-                type: "json_schema",
-                name: "estimate_photo_codes",
-                strict: true,
-                schema: .catalogCodeExtraction
+        static var catalogCodeExtraction: GenerationConfig {
+            GenerationConfig(
+                responseMimeType: "application/json",
+                responseJsonSchema: .catalogCodeExtraction
             )
         }
     }
@@ -237,13 +231,13 @@ private struct ResponsesRequest: Encodable {
                     "detected_codes": .array(
                         items: .object(
                             properties: [
-                                "category": .string,
-                                "selector": .string,
+                                "category": .string(description: "Exact CAT code visible in the image."),
+                                "selector": .string(description: "Exact SEL code visible in the image."),
                             ],
                             required: ["category", "selector"]
                         )
                     ),
-                    "note": .string,
+                    "note": .string(description: "Brief summary of what was readable in the image."),
                 ],
                 required: ["detected_codes", "note"],
                 additionalProperties: false
@@ -253,6 +247,7 @@ private struct ResponsesRequest: Encodable {
 
     final class JSONSchemaProperty: Encodable {
         let type: String
+        let description: String?
         let properties: [String: JSONSchemaProperty]?
         let required: [String]?
         let additionalProperties: Bool?
@@ -260,48 +255,49 @@ private struct ResponsesRequest: Encodable {
 
         init(
             type: String,
+            description: String?,
             properties: [String: JSONSchemaProperty]?,
             required: [String]?,
             additionalProperties: Bool?,
             items: JSONSchemaProperty?
         ) {
             self.type = type
+            self.description = description
             self.properties = properties
             self.required = required
             self.additionalProperties = additionalProperties
             self.items = items
         }
 
-        static var string: JSONSchemaProperty {
-            JSONSchemaProperty(type: "string", properties: nil, required: nil, additionalProperties: nil, items: nil)
+        static func string(description: String) -> JSONSchemaProperty {
+            JSONSchemaProperty(type: "string", description: description, properties: nil, required: nil, additionalProperties: nil, items: nil)
         }
 
         static func array(items: JSONSchemaProperty) -> JSONSchemaProperty {
-            JSONSchemaProperty(type: "array", properties: nil, required: nil, additionalProperties: nil, items: items)
+            JSONSchemaProperty(type: "array", description: nil, properties: nil, required: nil, additionalProperties: nil, items: items)
         }
 
         static func object(properties: [String: JSONSchemaProperty], required: [String]) -> JSONSchemaProperty {
-            JSONSchemaProperty(type: "object", properties: properties, required: required, additionalProperties: false, items: nil)
+            JSONSchemaProperty(type: "object", description: nil, properties: properties, required: required, additionalProperties: false, items: nil)
         }
     }
 
-    let model: String
-    let input: [InputMessage]
-    let text: TextConfiguration
-    let maxOutputTokens: Int
-
-    enum CodingKeys: String, CodingKey {
-        case model
-        case input
-        case text
-        case maxOutputTokens = "max_output_tokens"
-    }
+    let contents: [Content]
+    let generationConfig: GenerationConfig
 }
 
-private struct ResponsesCreateResponse: Decodable {
-    let outputText: String?
+private struct GeminiGenerateContentResponse: Decodable {
+    struct Candidate: Decodable {
+        struct Content: Decodable {
+            struct Part: Decodable {
+                let text: String?
+            }
 
-    enum CodingKeys: String, CodingKey {
-        case outputText = "output_text"
+            let parts: [Part]?
+        }
+
+        let content: Content?
     }
+
+    let candidates: [Candidate]?
 }

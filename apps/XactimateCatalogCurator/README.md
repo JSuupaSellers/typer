@@ -44,14 +44,14 @@ The importer is currently tuned for this workbook shape:
 ### Stage 4
 
 - import many estimate photos at once
-- send each photo through OpenAI vision in a batch loop
+- send each photo through Gemini vision in a batch loop
 - extract unique visible `CAT/SEL` pairs from each image
 - auto-mark matching catalog items as `Used Before`
 - review unmatched codes after the batch finishes
 
 As of March 21, 2026, OpenAI's Whisper API model is `whisper-1`. If you want the literal Whisper path, use that model name. OpenAI also offers newer non-Whisper transcription models such as `gpt-4o-transcribe` and `gpt-4o-mini-transcribe`.
 
-The estimate photo workflow uses the OpenAI Responses API with image input plus structured JSON output. The app converts imported photos to JPEG before upload so batches can include iPhone-style formats like HEIC without manual conversion.
+As of March 21, 2026, Google's Gemini 3 docs list model IDs such as `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`, and `gemini-3.1-pro-preview`; there is not an official model ID literally named `gemini-3.0`. The estimate photo workflow now defaults to `gemini-3-flash-preview`, and the app converts imported photos to JPEG before upload so batches can include iPhone-style formats like HEIC without manual conversion.
 
 ## Open and run
 
