@@ -1,0 +1,16 @@
+[Unit]
+Description=Pi Keystream Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/pi/pi-keystream-bridge
+ExecStart=/home/pi/pi-keystream-bridge/.venv/bin/python -m pi_keystream_bridge.cli daemon --config /home/pi/pi-keystream-bridge/config.local.json
+Restart=always
+RestartSec=3
+User=pi
+
+[Install]
+WantedBy=multi-user.target
+

@@ -1,0 +1,15 @@
+{
+  "firebase_credentials_path": "/home/pi/secrets/firebase-service-account.json",
+  "firebase_database_url": "https://your-project-default-rtdb.firebaseio.com",
+  "firebase_commands_path": "/bridges/default/commands",
+  "firebase_state_path": "/bridges/default/state",
+  "serial_port": "/dev/ttyACM0",
+  "serial_baudrate": 115200,
+  "serial_write_timeout_s": 1.0,
+  "serial_reconnect_interval_s": 2.0,
+  "state_file": "runtime/bridge-state.json",
+  "log_limit": 250,
+  "ui_refresh_ms": 250,
+  "ack_debounce_ms": 250
+}
+
