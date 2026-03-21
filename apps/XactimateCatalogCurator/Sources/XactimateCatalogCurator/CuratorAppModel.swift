@@ -1,0 +1,277 @@
+import AppKit
+import Foundation
+import SwiftUI
+
+enum CuratorStage: Hashable {
+    case importData
+    case quickReview
+    case usageNotes
+}
+
+@MainActor
+final class CuratorAppModel: ObservableObject {
+    @Published var selectedStage: CuratorStage = .importData
+    @Published var preview: ImportPreview?
+    @Published var importSummary: ImportResultSummary?
+    @Published var stats: CurationStats = .empty
+    @Published var currentReviewItem: CatalogItemDetail?
+    @Published var usedItems: [CatalogItemSummary] = []
+    @Published var selectedUsedItemID: Int64?
+    @Published var selectedUsedItem: CatalogItemDetail?
+    @Published var usageNotes: [UsageScenarioRecord] = []
+    @Published var selectedUsageNoteID: Int64?
+    @Published var scenarioDraft: ScenarioDraft = .empty
+    @Published var noteSearchText: String = ""
+    @Published var lastError: String = ""
+    @Published var isBusy = false
+
+    private let importer = WorkbookImporter()
+    private let store: CatalogStore?
+    private var skippedReviewIDs: Set<Int64> = []
+
+    init() {
+        let resolvedStore: CatalogStore?
+        do {
+            let databaseURL = try AppSupport.databaseURL()
+            resolvedStore = try CatalogStore(databaseURL: databaseURL)
+        } catch {
+            resolvedStore = nil
+            lastError = error.localizedDescription
+        }
+        store = resolvedStore
+        if resolvedStore != nil {
+            do {
+                try reloadEverything()
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    var databaseLocation: String {
+        store?.databaseURL.path(percentEncoded: false) ?? "Unavailable"
+    }
+
+    var reviewProgressText: String {
+        guard stats.totalItems > 0 else { return "No imported items yet." }
+        return "\(stats.reviewedItems) of \(stats.totalItems) reviewed"
+    }
+
+    func chooseWorkbook(_ url: URL) {
+        guard startWork() else { return }
+        defer { finishWork() }
+        do {
+            preview = try importer.previewWorkbook(at: url)
+            importSummary = nil
+            selectedStage = .importData
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func importSelectedWorkbook() {
+        guard let preview, let store, startWork() else { return }
+        defer { finishWork() }
+        do {
+            let (resolvedPreview, rows) = try importer.parseCatalogRows(at: preview.sourceURL)
+            let summary = try store.importRows(rows, preview: resolvedPreview)
+            importSummary = summary
+            skippedReviewIDs.removeAll()
+            try reloadEverything()
+            selectedStage = .quickReview
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func markCurrentReviewItem(as status: UsageStatus) {
+        guard selectedStage == .quickReview, let item = currentReviewItem, let store, startWork() else { return }
+        defer { finishWork() }
+        do {
+            try store.mark(itemID: item.id, status: status)
+            skippedReviewIDs.remove(item.id)
+            try reloadStatsAndReview()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func skipCurrentReviewItem() {
+        guard selectedStage == .quickReview, let item = currentReviewItem, startWork() else { return }
+        skippedReviewIDs.insert(item.id)
+        finishWork()
+        do {
+            try loadNextReviewItem()
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func refreshUsedItems() {
+        guard let store, startWork() else { return }
+        defer { finishWork() }
+        do {
+            usedItems = try store.usedItems(search: noteSearchText)
+            if let selectedUsedItemID, usedItems.contains(where: { $0.id == selectedUsedItemID }) {
+                try loadUsedItem(id: selectedUsedItemID)
+            } else if let first = usedItems.first {
+                try loadUsedItem(id: first.id)
+            } else {
+                selectedUsedItemID = nil
+                selectedUsedItem = nil
+                usageNotes = []
+                selectedUsageNoteID = nil
+                scenarioDraft = .empty
+            }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func selectUsedItem(id: Int64) {
+        guard startWork() else { return }
+        defer { finishWork() }
+        do {
+            try loadUsedItem(id: id)
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func startNewUsageNote() {
+        selectedUsageNoteID = nil
+        scenarioDraft = .empty
+    }
+
+    func selectUsageNote(id: Int64) {
+        guard let note = usageNotes.first(where: { $0.id == id }) else { return }
+        selectedUsageNoteID = id
+        scenarioDraft = ScenarioDraft(record: note)
+    }
+
+    func saveCurrentUsageNote() {
+        guard let store, let selectedUsedItemID, startWork() else { return }
+        defer { finishWork() }
+        let title = scenarioDraft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else {
+            lastError = "Give this usage note a short title."
+            return
+        }
+        do {
+            let savedID = try store.saveUsageNote(for: selectedUsedItemID, draft: scenarioDraft)
+            try loadUsedItem(id: selectedUsedItemID)
+            selectedUsageNoteID = savedID
+            if let note = usageNotes.first(where: { $0.id == savedID }) {
+                scenarioDraft = ScenarioDraft(record: note)
+            }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func deleteSelectedUsageNote() {
+        guard let store, let selectedUsageNoteID, let selectedUsedItemID, startWork() else { return }
+        defer { finishWork() }
+        do {
+            try store.deleteUsageNote(id: selectedUsageNoteID)
+            try loadUsedItem(id: selectedUsedItemID)
+            if let first = usageNotes.first {
+                self.selectedUsageNoteID = first.id
+                scenarioDraft = ScenarioDraft(record: first)
+            } else {
+                self.selectedUsageNoteID = nil
+                scenarioDraft = .empty
+            }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func exportCuratedJSON() {
+        guard let store, startWork() else { return }
+        defer { finishWork() }
+        do {
+            let envelope = try store.exportCuratedJSON()
+            let savePanel = NSSavePanel()
+            savePanel.allowedContentTypes = [.json]
+            savePanel.nameFieldStringValue = "xactimate-curated-export.json"
+            if savePanel.runModal() == .OK, let url = savePanel.url {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let data = try encoder.encode(envelope)
+                try data.write(to: url, options: .atomic)
+            }
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func clearError() {
+        lastError = ""
+    }
+
+    private func reloadEverything() throws {
+        try reloadStatsAndReview()
+        guard let store else { throw CatalogStoreError.databaseUnavailable }
+        usedItems = try store.usedItems(search: noteSearchText)
+        if let selectedUsedItemID, usedItems.contains(where: { $0.id == selectedUsedItemID }) {
+            try loadUsedItem(id: selectedUsedItemID)
+        } else if let first = usedItems.first {
+            try loadUsedItem(id: first.id)
+        } else {
+            selectedUsedItemID = nil
+            selectedUsedItem = nil
+            usageNotes = []
+            selectedUsageNoteID = nil
+            scenarioDraft = .empty
+        }
+    }
+
+    private func reloadStatsAndReview() throws {
+        guard let store else { throw CatalogStoreError.databaseUnavailable }
+        stats = try store.stats()
+        try loadNextReviewItem()
+    }
+
+    private func loadNextReviewItem() throws {
+        guard let store else { throw CatalogStoreError.databaseUnavailable }
+        if let next = try store.nextUnreviewedItem(excluding: skippedReviewIDs) {
+            currentReviewItem = next
+            return
+        }
+        if !skippedReviewIDs.isEmpty {
+            skippedReviewIDs.removeAll()
+            currentReviewItem = try store.nextUnreviewedItem(excluding: [])
+        } else {
+            currentReviewItem = nil
+        }
+    }
+
+    private func loadUsedItem(id: Int64) throws {
+        guard let store else { throw CatalogStoreError.databaseUnavailable }
+        selectedUsedItemID = id
+        selectedUsedItem = try store.loadItem(id: id)
+        usageNotes = try store.usageNotes(for: id)
+        if let selectedUsageNoteID, usageNotes.contains(where: { $0.id == selectedUsageNoteID }) {
+            if let selected = usageNotes.first(where: { $0.id == selectedUsageNoteID }) {
+                scenarioDraft = ScenarioDraft(record: selected)
+            }
+        } else if let first = usageNotes.first {
+            selectedUsageNoteID = first.id
+            scenarioDraft = ScenarioDraft(record: first)
+        } else {
+            selectedUsageNoteID = nil
+            scenarioDraft = .empty
+        }
+    }
+
+    private func startWork() -> Bool {
+        guard !isBusy else { return false }
+        isBusy = true
+        return true
+    }
+
+    private func finishWork() {
+        isBusy = false
+    }
+}

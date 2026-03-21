@@ -1,6 +1,6 @@
 # Pi Keystream Bridge
 
-This project is a Raspberry Pi side bridge for your workflow:
+This project contains the Raspberry Pi side bridge for your workflow:
 
 1. Your main machine writes ordered keyboard commands into Firebase Realtime Database.
 2. The Raspberry Pi listens live for those commands.
@@ -16,6 +16,10 @@ The Pi handles timing locally, so slow Xactimate screens can be paced with expli
 - The serial path is isolated in a dedicated worker thread so the UI never blocks.
 - Delay commands are applied on the Pi instead of the Teensy, which keeps the USB side simpler.
 - Tkinter is included with Python and stays light enough for Raspberry Pi deployments.
+
+The native macOS curator app lives separately under `apps/XactimateCatalogCurator`.
+
+Open [apps/XactimateCatalogCurator/README.md](/Users/joshuasellers/Documents/Development/App/Typer/apps/XactimateCatalogCurator/README.md) for the Mac app workflow and run instructions.
 
 ## Command contract
 
