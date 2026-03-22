@@ -15,6 +15,20 @@ enum BackendClientError: LocalizedError {
 }
 
 struct BackendClient {
+    func listDrafts(
+        configuration: BackendConfiguration
+    ) async throws -> DraftListResponse {
+        guard let endpoint = URL(string: configuration.baseURL.trimmed)?.appending(path: "drafts") else {
+            throw BackendClientError.invalidBaseURL
+        }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        if !configuration.apiKey.trimmed.isEmpty {
+            request.setValue(configuration.apiKey.trimmed, forHTTPHeaderField: "X-API-Key")
+        }
+        return try await execute(request, as: DraftListResponse.self)
+    }
+
     func openDraft(
         jobID: String,
         bridgeID: String,

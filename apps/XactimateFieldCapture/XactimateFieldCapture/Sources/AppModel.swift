@@ -21,6 +21,8 @@ final class FieldCaptureAppModel: ObservableObject {
     @Published var planResponse: PlanResponse?
     @Published var publishResponse: PublishResponse?
     @Published var selectedRoom: String = "All Rooms"
+    @Published var claimSummaries: [ClaimSummaryPayload] = []
+    @Published var showingClaims: Bool = false
 
     private let client = BackendClient()
     private let recorder = FieldAudioRecorder()
@@ -76,6 +78,10 @@ final class FieldCaptureAppModel: ObservableObject {
         return groupedSections.filter { $0.room == selectedRoom }
     }
 
+    var currentClaimSummary: ClaimSummaryPayload? {
+        claimSummaries.first(where: { $0.jobId == jobID.trimmed })
+    }
+
     func openDraft() async {
         await runBusy("Opening claim draft...") { [self] in
             let response = try await self.client.openDraft(
@@ -88,6 +94,7 @@ final class FieldCaptureAppModel: ObservableObject {
             self.transcript = ""
             self.planResponse = nil
             self.publishResponse = nil
+            try await self.reloadClaimSummaries()
         }
     }
 
@@ -98,6 +105,7 @@ final class FieldCaptureAppModel: ObservableObject {
                 configuration: self.backendConfiguration
             )
             self.applyDraftResponse(response)
+            try await self.reloadClaimSummaries()
         }
     }
 
@@ -116,6 +124,7 @@ final class FieldCaptureAppModel: ObservableObject {
             self.audioFileURL = nil
             self.planResponse = nil
             self.publishResponse = nil
+            try await self.reloadClaimSummaries()
         }
     }
 
@@ -135,6 +144,7 @@ final class FieldCaptureAppModel: ObservableObject {
             self.audioFileURL = nil
             self.planResponse = nil
             self.publishResponse = nil
+            try await self.reloadClaimSummaries()
         }
     }
 
@@ -149,6 +159,7 @@ final class FieldCaptureAppModel: ObservableObject {
             self.applyDraftResponse(response)
             self.planResponse = nil
             self.publishResponse = nil
+            try await self.reloadClaimSummaries()
         }
     }
 
@@ -161,6 +172,7 @@ final class FieldCaptureAppModel: ObservableObject {
             self.applyDraftResponse(response)
             self.planResponse = nil
             self.publishResponse = nil
+            try await self.reloadClaimSummaries()
         }
     }
 
@@ -175,6 +187,7 @@ final class FieldCaptureAppModel: ObservableObject {
             self.planResponse = response.plan
             self.publishResponse = nil
             self.syncSelectedRoom()
+            try await self.reloadClaimSummaries()
         }
     }
 
@@ -188,7 +201,40 @@ final class FieldCaptureAppModel: ObservableObject {
             self.groupedSections = response.groupedSections
             self.publishResponse = response.publish
             self.syncSelectedRoom()
+            try await self.reloadClaimSummaries()
         }
+    }
+
+    func loadClaims(silently: Bool = false) async {
+        if silently {
+            do {
+                try await reloadClaimSummaries()
+            } catch {
+                // Ignore startup refresh failures until the user interacts with the backend controls.
+            }
+            return
+        }
+
+        await runBusy("Loading claims...") { [self] in
+            try await self.reloadClaimSummaries()
+        }
+    }
+
+    func switchToClaim(_ summary: ClaimSummaryPayload) async {
+        jobID = summary.jobId
+        bridgeID = summary.bridgeId
+        showingClaims = false
+        await openDraft()
+    }
+
+    func startNewClaim() async {
+        let newID = "claim-\(Int(Date().timeIntervalSince1970))"
+        jobID = newID
+        bridgeID = bridgeID.trimmed.isEmpty ? "default" : bridgeID.trimmed
+        selectedRoom = "All Rooms"
+        transcript = ""
+        messageDraft = ""
+        await openDraft()
     }
 
     func toggleRecording() async {
@@ -220,6 +266,11 @@ final class FieldCaptureAppModel: ObservableObject {
         if !rooms.contains(selectedRoom) {
             selectedRoom = "All Rooms"
         }
+    }
+
+    private func reloadClaimSummaries() async throws {
+        let response = try await client.listDrafts(configuration: backendConfiguration)
+        claimSummaries = response.drafts
     }
 
     private var backendConfiguration: BackendConfiguration {

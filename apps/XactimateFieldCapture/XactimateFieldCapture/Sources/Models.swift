@@ -67,6 +67,30 @@ struct DraftPayload: Codable, Equatable {
     }
 }
 
+struct ClaimSummaryPayload: Codable, Identifiable, Equatable {
+    let jobId: String
+    let bridgeId: String
+    let updatedAt: String
+    let roomCount: Int
+    let itemCount: Int
+    let acceptedCount: Int
+    let messageCount: Int
+    let latestMessagePreview: String
+
+    var id: String { jobId }
+
+    enum CodingKeys: String, CodingKey {
+        case jobId = "job_id"
+        case bridgeId = "bridge_id"
+        case updatedAt = "updated_at"
+        case roomCount = "room_count"
+        case itemCount = "item_count"
+        case acceptedCount = "accepted_count"
+        case messageCount = "message_count"
+        case latestMessagePreview = "latest_message_preview"
+    }
+}
+
 struct DraftSectionPayload: Codable, Identifiable, Equatable {
     let room: String
     let section: String
@@ -86,6 +110,11 @@ struct OpenDraftResponse: Decodable, Equatable {
         case draft
         case groupedSections = "grouped_sections"
     }
+}
+
+struct DraftListResponse: Decodable, Equatable {
+    let status: String
+    let drafts: [ClaimSummaryPayload]
 }
 
 struct DraftTurnResponse: Decodable, Equatable {

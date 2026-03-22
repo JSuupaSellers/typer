@@ -20,6 +20,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     sessionHeader
                     settingsPanel
+                    claimsPanel
                     if model.draft != nil {
                         overviewPanel
                         chatPanel
@@ -35,16 +36,38 @@ struct ContentView: View {
                 .padding(.bottom, 124)
             }
             .background(background)
+            .task {
+                await model.loadClaims(silently: true)
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        model.showingClaims = true
+                    } label: {
+                        Image(systemName: "sidebar.left")
+                            .foregroundStyle(ink)
+                    }
+                }
                 ToolbarItem(placement: .principal) {
                     Text("Claim Draft")
                         .font(.system(size: 19, weight: .semibold, design: .rounded))
                         .foregroundStyle(ink)
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        Task { await model.startNewClaim() }
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                            .foregroundStyle(accent)
+                    }
+                }
             }
             .safeAreaInset(edge: .bottom) {
                 composerBar
+            }
+            .sheet(isPresented: $model.showingClaims) {
+                claimsSheet
             }
             .alert("Something went wrong", isPresented: Binding(
                 get: { model.errorMessage != nil },
@@ -91,6 +114,20 @@ struct ContentView: View {
                 }
                 Spacer(minLength: 12)
                 statusPill(label: model.draft == nil ? "Idle" : "Live Draft", systemImage: model.draft == nil ? "circle.dashed" : "bolt.fill")
+            }
+
+            if let summary = model.currentClaimSummary {
+                HStack(spacing: 10) {
+                    Text(summary.jobId)
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(ink)
+                    Text("\(summary.roomCount) rooms")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(ink.opacity(0.55))
+                    Text("\(summary.itemCount) items")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(ink.opacity(0.55))
+                }
             }
 
             if let publish = model.publishResponse {
@@ -150,6 +187,50 @@ struct ContentView: View {
                             Task { await model.refreshDraft() }
                         }
                         .buttonStyle(.bordered)
+                    }
+                }
+            }
+        }
+    }
+
+    private var claimsPanel: some View {
+        panel {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    sectionEyebrow("Claims")
+                    Spacer()
+                    Button("See All") {
+                        model.showingClaims = true
+                    }
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(accent)
+                }
+
+                if model.claimSummaries.isEmpty {
+                    Text("No claims loaded yet. Open a draft or create a new claim to start a claim list.")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(ink.opacity(0.6))
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(model.claimSummaries.prefix(6)) { summary in
+                                Button {
+                                    Task { await model.switchToClaim(summary) }
+                                } label: {
+                                    claimCard(summary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    actionButton("New Claim", systemImage: "plus", fill: accent, foreground: .white) {
+                        Task { await model.startNewClaim() }
+                    }
+                    actionButton("Refresh Claims", systemImage: "arrow.clockwise", fill: Color.white, foreground: ink) {
+                        Task { await model.loadClaims() }
                     }
                 }
             }
@@ -335,6 +416,59 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private var claimsSheet: some View {
+        NavigationStack {
+            List {
+                Section("Working Claims") {
+                    ForEach(model.claimSummaries) { summary in
+                        Button {
+                            Task { await model.switchToClaim(summary) }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text(summary.jobId)
+                                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                                        .foregroundStyle(ink)
+                                    Spacer()
+                                    if summary.jobId == model.jobID.trimmed {
+                                        Text("Open")
+                                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                                            .foregroundStyle(accent)
+                                    }
+                                }
+                                Text(summary.latestMessagePreview.isEmpty ? "No conversation yet." : summary.latestMessagePreview)
+                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                    .foregroundStyle(ink.opacity(0.62))
+                                    .lineLimit(2)
+                                Text("\(summary.roomCount) rooms • \(summary.itemCount) items • \(summary.messageCount) turns")
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(ink.opacity(0.48))
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .navigationTitle("Claims")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Close") {
+                        model.showingClaims = false
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("New") {
+                        model.showingClaims = false
+                        Task { await model.startNewClaim() }
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 
     private var actionPanel: some View {
@@ -591,6 +725,10 @@ struct ContentView: View {
         .buttonStyle(.plain)
         .foregroundStyle(foreground)
         .background(fill, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(fill == Color.white ? panelStroke : Color.clear, lineWidth: 1)
+        )
     }
 
     private func iconButton(systemImage: String, fill: Color, action: @escaping () -> Void) -> some View {
@@ -621,5 +759,41 @@ struct ContentView: View {
 
     private var messageCount: Int {
         model.draft?.messages.count ?? 0
+    }
+
+    private func claimCard(_ summary: ClaimSummaryPayload) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(summary.jobId)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundStyle(summary.jobId == model.jobID.trimmed ? Color.white : ink)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                if summary.jobId == model.jobID.trimmed {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Color.white.opacity(0.92))
+                }
+            }
+
+            Text(summary.latestMessagePreview.isEmpty ? "No turns yet." : summary.latestMessagePreview)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle((summary.jobId == model.jobID.trimmed ? Color.white : ink).opacity(0.78))
+                .lineLimit(3)
+
+            Text("\(summary.roomCount) rooms • \(summary.itemCount) items")
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle((summary.jobId == model.jobID.trimmed ? Color.white : accent).opacity(0.92))
+        }
+        .padding(14)
+        .frame(width: 210, alignment: .leading)
+        .background(
+            summary.jobId == model.jobID.trimmed
+                ? AnyShapeStyle(LinearGradient(colors: [accent, Color(red: 0.10, green: 0.37, blue: 0.28)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                : AnyShapeStyle(Color.white.opacity(0.82))
+        , in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(summary.jobId == model.jobID.trimmed ? Color.clear : panelStroke, lineWidth: 1)
+        )
     }
 }

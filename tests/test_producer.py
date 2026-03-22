@@ -343,6 +343,13 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(opened.status_code, 200)
         self.assertEqual(opened.json()["draft"]["job_id"], "claim-chat")
 
+        opened_second = client.post(
+            "/drafts/open",
+            headers=headers,
+            json={"job_id": "claim-second", "bridge_id": "field"},
+        )
+        self.assertEqual(opened_second.status_code, 200)
+
         chat = client.post(
             "/drafts/claim-chat/chat",
             headers=headers,
@@ -361,6 +368,13 @@ class ProducerTests(unittest.TestCase):
         )
         self.assertEqual(voice_turn.status_code, 200)
         self.assertIn("Transcript for bedroom.m4a", voice_turn.json()["transcript"])
+
+        drafts_list = client.get("/drafts", headers=headers)
+        self.assertEqual(drafts_list.status_code, 200)
+        listed = drafts_list.json()["drafts"]
+        self.assertEqual([entry["job_id"] for entry in listed], ["claim-chat", "claim-second"])
+        self.assertEqual(listed[0]["message_count"], 4)
+        self.assertEqual(listed[1]["bridge_id"], "field")
 
 
 if __name__ == "__main__":

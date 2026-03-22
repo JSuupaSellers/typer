@@ -2,6 +2,31 @@ import XCTest
 @testable import XactimateFieldCapture
 
 final class BackendModelsTests: XCTestCase {
+    func testDraftListDecodesClaimSummaries() throws {
+        let json = """
+        {
+          "status": "ok",
+          "drafts": [
+            {
+              "job_id": "claim-123",
+              "bridge_id": "default",
+              "updated_at": "2026-03-22T12:05:00Z",
+              "room_count": 2,
+              "item_count": 5,
+              "accepted_count": 4,
+              "message_count": 6,
+              "latest_message_preview": "Add baseboards in the living room."
+            }
+          ]
+        }
+        """
+
+        let response = try JSONDecoder().decode(DraftListResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(response.drafts.first?.jobId, "claim-123")
+        XCTAssertEqual(response.drafts.first?.itemCount, 5)
+        XCTAssertEqual(response.drafts.first?.latestMessagePreview, "Add baseboards in the living room.")
+    }
+
     func testOpenDraftDecodesMessagesAndSections() throws {
         let json = """
         {

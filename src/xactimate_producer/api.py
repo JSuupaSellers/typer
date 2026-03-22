@@ -133,6 +133,16 @@ def create_app(
             "grouped_sections": draft.grouped_sections(),
         }
 
+    @app.get("/drafts")
+    def list_drafts(
+        _auth: None = Depends(authorize),
+        drafts: DraftCoordinator = Depends(get_draft_coordinator),
+    ) -> dict[str, object]:
+        return {
+            "status": "ok",
+            "drafts": [summary.to_dict() for summary in drafts.list_drafts()],
+        }
+
     @app.get("/drafts/{job_id}")
     def get_draft(
         job_id: str,

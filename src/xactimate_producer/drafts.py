@@ -376,6 +376,44 @@ class EstimateDraft:
         return "\n\n".join(sections)
 
 
+@dataclass(frozen=True)
+class DraftSummary:
+    job_id: str
+    bridge_id: str
+    updated_at: str
+    room_count: int
+    item_count: int
+    accepted_count: int
+    message_count: int
+    latest_message_preview: str
+
+    @classmethod
+    def from_draft(cls, draft: EstimateDraft) -> "DraftSummary":
+        latest_message = draft.messages[-1].text if draft.messages else ""
+        return cls(
+            job_id=draft.job_id,
+            bridge_id=draft.bridge_id,
+            updated_at=draft.updated_at,
+            room_count=len(tuple(dict.fromkeys(draft.room_order))),
+            item_count=len(draft.items),
+            accepted_count=sum(1 for item in draft.items if item.status == "accepted"),
+            message_count=len(draft.messages),
+            latest_message_preview=latest_message[:140],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "job_id": self.job_id,
+            "bridge_id": self.bridge_id,
+            "updated_at": self.updated_at,
+            "room_count": self.room_count,
+            "item_count": self.item_count,
+            "accepted_count": self.accepted_count,
+            "message_count": self.message_count,
+            "latest_message_preview": self.latest_message_preview,
+        }
+
+
 class DraftStore:
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
@@ -406,6 +444,22 @@ class DraftStore:
             return existing
         draft = EstimateDraft.create(job_id, bridge_id)
         return self.save(draft)
+
+    def list_summaries(self) -> tuple[DraftSummary, ...]:
+        summaries: list[DraftSummary] = []
+        for path in sorted(self.root.glob("*.json")):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            try:
+                summaries.append(DraftSummary.from_draft(EstimateDraft.from_dict(payload)))
+            except Exception:
+                continue
+        summaries.sort(key=lambda entry: entry.updated_at, reverse=True)
+        return tuple(summaries)
 
 
 @dataclass(frozen=True)
@@ -452,6 +506,9 @@ class DraftCoordinator:
         if draft is None:
             raise KeyError(job_id)
         return draft
+
+    def list_drafts(self) -> tuple[DraftSummary, ...]:
+        return self._store.list_summaries()
 
     async def transcribe_audio(self, filename: str, content: bytes) -> str:
         if self._transcription_service is None:
