@@ -338,6 +338,44 @@ struct ContentView: View {
                                 }
                             }
                         }
+
+                        if let pendingTurn = model.activePendingTurn {
+                            HStack {
+                                Spacer(minLength: 54)
+                                messageBubble(
+                                    text: pendingTurn.submittedText,
+                                    role: "user",
+                                    fill: userBubble,
+                                    foreground: .white,
+                                    isLeading: false,
+                                    showsStroke: false
+                                )
+                            }
+
+                            HStack {
+                                thinkingBubble(pendingTurn.statusText)
+                                Spacer(minLength: 54)
+                            }
+                        }
+                    }
+                } else if let pendingTurn = model.activePendingTurn {
+                    LazyVStack(spacing: 12) {
+                        HStack {
+                            Spacer(minLength: 54)
+                            messageBubble(
+                                text: pendingTurn.submittedText,
+                                role: "user",
+                                fill: userBubble,
+                                foreground: .white,
+                                isLeading: false,
+                                showsStroke: false
+                            )
+                        }
+
+                        HStack {
+                            thinkingBubble(pendingTurn.statusText)
+                            Spacer(minLength: 54)
+                        }
                     }
                 } else {
                     modernEmptyState(
@@ -380,6 +418,7 @@ struct ContentView: View {
                         ) {
                             Task { await model.acceptAll() }
                         }
+                        .disabled(!model.canAcceptAll)
 
                         actionButton(
                             "Plan",
@@ -904,11 +943,29 @@ struct ContentView: View {
         isLeading: Bool,
         showsStroke: Bool
     ) -> some View {
+        messageBubble(
+            text: message.text,
+            role: message.role,
+            fill: fill,
+            foreground: foreground,
+            isLeading: isLeading,
+            showsStroke: showsStroke
+        )
+    }
+
+    private func messageBubble(
+        text: String,
+        role: String,
+        fill: Color,
+        foreground: Color,
+        isLeading: Bool,
+        showsStroke: Bool
+    ) -> some View {
         VStack(alignment: isLeading ? .leading : .trailing, spacing: 7) {
-            Text(message.text)
+            Text(text)
                 .font(.system(size: 15, weight: .medium, design: .rounded))
                 .multilineTextAlignment(isLeading ? .leading : .trailing)
-            Text(message.role.capitalized)
+            Text(role.capitalized)
                 .font(.system(size: 11, weight: .bold, design: .rounded))
                 .opacity(0.62)
         }
@@ -919,6 +976,30 @@ struct ContentView: View {
         .overlay(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(showsStroke ? cardStroke : Color.clear, lineWidth: 1)
+        )
+    }
+
+    private func thinkingBubble(_ label: String) -> some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .tint(accent)
+                .scaleEffect(0.9)
+            VStack(alignment: .leading, spacing: 7) {
+                Text(label)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                Text("Assistant")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .opacity(0.62)
+            }
+            Spacer(minLength: 0)
+        }
+        .foregroundStyle(ink)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(assistantBubble, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(cardStroke, lineWidth: 1)
         )
     }
 
@@ -984,6 +1065,7 @@ struct ContentView: View {
                             ) {
                                 Task { await model.setItemStatus(item.id, status: "accepted") }
                             }
+                            .disabled(model.activePendingTurn != nil)
 
                             actionChip(
                                 "Reject",
@@ -992,6 +1074,7 @@ struct ContentView: View {
                             ) {
                                 Task { await model.setItemStatus(item.id, status: "rejected") }
                             }
+                            .disabled(model.activePendingTurn != nil)
                         }
                     }
                     .padding(16)
@@ -1035,7 +1118,12 @@ struct ContentView: View {
     }
 
     private func detailLine(for item: DraftLineItemPayload) -> String {
-        [item.surface, item.damageType, item.quantity.isEmpty ? "" : "Qty \(item.quantity)"]
+        [
+            item.surface,
+            item.damageType,
+            item.activity.isEmpty ? "" : "Act \(item.activity)",
+            item.quantity.isEmpty ? "" : "Qty \(item.quantity)",
+        ]
             .map(\.trimmed)
             .filter { !$0.isEmpty }
             .joined(separator: " • ")

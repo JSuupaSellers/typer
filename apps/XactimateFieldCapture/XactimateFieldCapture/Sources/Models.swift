@@ -26,6 +26,7 @@ struct DraftLineItemPayload: Codable, Identifiable, Equatable {
     let approvedCode: String
     let description: String
     let quantity: String
+    let activity: String
     let surface: String
     let damageType: String
     let keywords: String
@@ -40,6 +41,7 @@ struct DraftLineItemPayload: Codable, Identifiable, Equatable {
         case approvedCode = "approved_code"
         case description
         case quantity
+        case activity
         case surface
         case damageType = "damage_type"
         case keywords
@@ -159,6 +161,7 @@ struct EstimateScopeItemPayload: Codable, Identifiable, Equatable {
     let damageType: String
     let keywords: String
     let quantity: String
+    let activity: String
     let note: String
     let approvedCode: String
 
@@ -174,6 +177,7 @@ struct EstimateScopeItemPayload: Codable, Identifiable, Equatable {
         case damageType = "damage_type"
         case keywords
         case quantity
+        case activity
         case note
         case approvedCode = "approved_code"
     }

@@ -1,5 +1,11 @@
 import Foundation
 
+struct PendingTurnState: Equatable {
+    let jobID: String
+    let submittedText: String
+    let statusText: String
+}
+
 @MainActor
 final class FieldCaptureAppModel: ObservableObject {
     @Published var backendBaseURL: String {
@@ -23,6 +29,7 @@ final class FieldCaptureAppModel: ObservableObject {
     @Published var selectedRoom: String = "All Rooms"
     @Published var claimSummaries: [ClaimSummaryPayload] = []
     @Published var showingClaims: Bool = false
+    @Published var pendingTurn: PendingTurnState?
 
     private let client = BackendClient()
     private let recorder = FieldAudioRecorder()
@@ -43,20 +50,32 @@ final class FieldCaptureAppModel: ObservableObject {
     }
 
     var canSendText: Bool {
-        draft != nil && !messageDraft.trimmed.isEmpty
+        draft != nil && !messageDraft.trimmed.isEmpty && pendingTurn == nil
     }
 
     var canSendVoice: Bool {
-        draft != nil && audioFileURL != nil
+        draft != nil && audioFileURL != nil && pendingTurn == nil
+    }
+
+    var canAcceptAll: Bool {
+        draft != nil && activePendingTurn == nil
     }
 
     var canPlan: Bool {
-        draft?.items.contains(where: { $0.status == "accepted" }) == true
+        activePendingTurn == nil && draft?.items.contains(where: { $0.status == "accepted" }) == true
     }
 
     var canPublish: Bool {
+        guard activePendingTurn == nil else { return false }
         guard let planResponse else { return false }
         return planResponse.needsReviewCount == 0 && planResponse.unresolvedCount == 0 && planResponse.approvedCount > 0
+    }
+
+    var activePendingTurn: PendingTurnState? {
+        guard let pendingTurn, pendingTurn.jobID == jobID.trimmed else {
+            return nil
+        }
+        return pendingTurn
     }
 
     var rooms: [String] {
@@ -112,39 +131,80 @@ final class FieldCaptureAppModel: ObservableObject {
     func sendTextTurn() async {
         let outgoing = messageDraft.trimmed
         guard !outgoing.isEmpty else { return }
-        await runBusy("Sending note to the claim agent...") { [self] in
+        let requestJobID = jobID.trimmed
+        let requestBridgeID = bridgeID.trimmed.isEmpty ? "default" : bridgeID.trimmed
+        let originalDraft = messageDraft
+        errorMessage = nil
+        pendingTurn = PendingTurnState(jobID: requestJobID, submittedText: outgoing, statusText: "Thinking...")
+        messageDraft = ""
+        audioFileURL = nil
+        planResponse = nil
+        publishResponse = nil
+
+        do {
             let response = try await self.client.sendChatTurn(
-                jobID: self.jobID.trimmed,
-                bridgeID: self.bridgeID.trimmed.isEmpty ? "default" : self.bridgeID.trimmed,
+                jobID: requestJobID,
+                bridgeID: requestBridgeID,
                 text: outgoing,
                 configuration: self.backendConfiguration
             )
-            self.applyTurnResponse(response)
-            self.messageDraft = ""
-            self.audioFileURL = nil
-            self.planResponse = nil
-            self.publishResponse = nil
             try await self.reloadClaimSummaries()
+            if self.jobID.trimmed == requestJobID {
+                self.applyTurnResponse(response)
+            }
+        } catch {
+            if self.jobID.trimmed == requestJobID {
+                if self.messageDraft.isEmpty {
+                    self.messageDraft = originalDraft
+                }
+                self.errorMessage = error.localizedDescription
+            }
+        }
+        if pendingTurn?.jobID == requestJobID {
+            pendingTurn = nil
         }
     }
 
     func sendVoiceTurn() async {
         guard let audioFileURL else { return }
         let draftText = messageDraft.trimmed
-        await runBusy("Transcribing and applying voice turn...") { [self] in
+        let requestJobID = jobID.trimmed
+        let requestBridgeID = bridgeID.trimmed.isEmpty ? "default" : bridgeID.trimmed
+        let originalDraftText = messageDraft
+        let originalAudioURL = audioFileURL
+        let pendingPreview = draftText.isEmpty ? "Voice note sent" : draftText
+        errorMessage = nil
+        pendingTurn = PendingTurnState(jobID: requestJobID, submittedText: pendingPreview, statusText: "Thinking...")
+        messageDraft = ""
+        self.audioFileURL = nil
+        planResponse = nil
+        publishResponse = nil
+
+        do {
             let response = try await self.client.sendVoiceTurn(
-                jobID: self.jobID.trimmed,
-                bridgeID: self.bridgeID.trimmed.isEmpty ? "default" : self.bridgeID.trimmed,
+                jobID: requestJobID,
+                bridgeID: requestBridgeID,
                 text: draftText,
-                audioFileURL: audioFileURL,
+                audioFileURL: originalAudioURL,
                 configuration: self.backendConfiguration
             )
-            self.applyTurnResponse(response)
-            self.messageDraft = ""
-            self.audioFileURL = nil
-            self.planResponse = nil
-            self.publishResponse = nil
             try await self.reloadClaimSummaries()
+            if self.jobID.trimmed == requestJobID {
+                self.applyTurnResponse(response)
+            }
+        } catch {
+            if self.jobID.trimmed == requestJobID {
+                if self.messageDraft.isEmpty {
+                    self.messageDraft = originalDraftText
+                }
+                if self.audioFileURL == nil {
+                    self.audioFileURL = originalAudioURL
+                }
+                self.errorMessage = error.localizedDescription
+            }
+        }
+        if pendingTurn?.jobID == requestJobID {
+            pendingTurn = nil
         }
     }
 
