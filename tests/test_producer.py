@@ -472,6 +472,11 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(strategy_items["properties"]["query"]["type"], ["string", "null"])
         self.assertEqual(strategy_items["properties"]["limit"]["type"], ["integer", "null"])
 
+        defaults_tool = next(tool for tool in agent._tool_definitions() if tool["name"] == "get_estimating_defaults")
+        self.assertEqual(defaults_tool["parameters"]["properties"]["topic"]["type"], ["string", "null"])
+        self.assertEqual(defaults_tool["parameters"]["properties"]["room_scope"]["type"], ["boolean", "null"])
+        self.assertIn("room-variable", defaults_tool["description"])
+
     def test_openai_agent_uses_stored_responses_for_tool_loops(self) -> None:
         agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())
 
@@ -551,6 +556,26 @@ class ProducerTests(unittest.TestCase):
         combined_codes = {candidate["item"]["code"] for candidate in result["combined_candidates"]}
         self.assertIn("DRY/PCH", combined_codes)
         self.assertIn("PNT/SP", combined_codes)
+
+    def test_estimating_defaults_tool_returns_baseboard_room_scope_guidance(self) -> None:
+        agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())
+
+        result = agent._run_tool(
+            "get_estimating_defaults",
+            {
+                "topic": "baseboard reset",
+                "component": "baseboard",
+                "action": "detach and reset",
+                "room_scope": True,
+            },
+        )
+
+        self.assertEqual(result["variables"]["PF"], "Perimeter of Floor")
+        suggested_codes = {entry.get("approved_code") for entry in result["suggestions"]}
+        self.assertIn("FNC/BRS", suggested_codes)
+        self.assertIn("FNC/BRS>", suggested_codes)
+        self.assertIn("FNC/BR", suggested_codes)
+        self.assertTrue(any(entry.get("quantity") == "PF" for entry in result["suggestions"]))
 
     def test_chat_endpoint_surfaces_agent_failures(self) -> None:
         service = ProducerService(self.config, FakeRuntimeClient(), FakePublisher())

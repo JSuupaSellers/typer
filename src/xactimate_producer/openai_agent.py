@@ -279,6 +279,39 @@ class OpenAIDraftAgent:
                     "additionalProperties": False,
                 },
             },
+            {
+                "type": "function",
+                "name": "get_estimating_defaults",
+                "description": (
+                    "Return deterministic Xactimate room-variable and scope-default guidance for common estimating patterns. "
+                    "Use this before searching when the user describes room-wide trim, baseboard, chair rail, crown, paint, or other scope "
+                    "that should usually use a room variable like PF, PC, F, W, C, or WC."
+                ),
+                "strict": True,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "topic": {
+                            "type": ["string", "null"],
+                            "description": "Optional freeform topic such as 'baseboard reset', 'room variables', or 'trim around room'.",
+                        },
+                        "component": {
+                            "type": ["string", "null"],
+                            "description": "Optional component like 'baseboard', 'chair rail', 'crown', or 'ceiling'.",
+                        },
+                        "action": {
+                            "type": ["string", "null"],
+                            "description": "Optional action like 'detach and reset', 'paint', 'replace', or 'reset'.",
+                        },
+                        "room_scope": {
+                            "type": ["boolean", "null"],
+                            "description": "Optional hint that the task applies to the full room.",
+                        },
+                    },
+                    "required": ["topic", "component", "action", "room_scope"],
+                    "additionalProperties": False,
+                },
+            },
         ]
 
     def _run_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -296,6 +329,8 @@ class OpenAIDraftAgent:
         if name == "get_line_item":
             item = self.runtime_client.get_item(str(arguments.get("code", "")).strip())
             return {"item": item.to_dict()}
+        if name == "get_estimating_defaults":
+            return self._estimating_defaults(arguments)
         raise RuntimeError(f"Unknown tool call: {name}")
 
     def _system_prompt(self) -> str:
@@ -305,15 +340,22 @@ class OpenAIDraftAgent:
             "Always keep scope organized by room, then by section from ceiling to floor where appropriate. "
             "Typical section names are Ceiling, Walls, Floors, then system-specific sections like Cabinetry, Plumbing, Electrical, or HVAC when they matter. "
             "The backend automatically inserts note separator rows from section titles, so your operations should focus on line items. "
-            "Never invent CAT/SEL codes. Use search_line_items, explore_line_item_search, and get_line_item before adding any line item. "
+            "Never invent CAT/SEL codes. Use get_estimating_defaults, search_line_items, explore_line_item_search, and get_line_item before adding any line item. "
             "For search_line_items, search one atomic scope item at a time. "
             "Do not send the whole user narrative into the tool. "
             "Convert each need into a short estimator-style query like 'seal water stain ceiling', "
             "'paint acoustic ceiling', 'paint wall', 'drywall patch 2x2', or 're-apply protective coating carpet'. "
             "If the user describes multiple needs, make multiple search_line_items calls. "
+            "Before searching or adding room-wide trim, baseboard, chair rail, crown, or paint items, call get_estimating_defaults to choose the right room variable and baseline convention. "
             "Use room, section, surface, damage_type, and keywords fields to narrow the search instead of overloading query text. "
             "When a search returns weak or obviously wrong candidates, first try a narrower or more domain-specific query. "
             "If you want to compare different phrasings or tactics, call explore_line_item_search with 2-4 distinct strategies such as generic workflow, synonym variant, surface-first phrasing, or domain-specific phrasing. "
+            "Important estimating defaults: PF means perimeter of floor. "
+            "For room-wide trim like baseboard or chair rail, default quantity to PF unless the user gives partial footage or a deduction like PF-12. "
+            "For full-room baseboard detach and reset, prefer the explicit price-list selector FNC/BRS with quantity PF. "
+            "Use FNC/BRS> for multi-member baseboard, and FNC/BR only when it is reset-only because another trade already detached it. "
+            "If the user wants generic baseboard replacement and gives no size or material, default to FNC/B3 with quantity PF as the common paint-grade 3 1/4 inch assumption. "
+            "Our current backend stores explicit CAT/SEL codes and quantity text, not a separate activity-code field, so prefer explicit price-list selectors when they exist. "
             "If the user asks what search returned, answer with the top returned CAT/SEL candidates and why they look right or wrong. "
             "Preserve existing accepted items unless the user clearly asks to remove or replace them. "
             "When the user corrects a room or section, use clear_section or remove_line_item before adding replacements. "
@@ -369,6 +411,109 @@ class OpenAIDraftAgent:
                 "limit": limit,
             },
             "candidates": [candidate.to_dict() for candidate in candidates],
+        }
+
+    def _estimating_defaults(self, arguments: dict[str, Any]) -> dict[str, Any]:
+        topic = str(arguments.get("topic", "")).strip()
+        component = str(arguments.get("component", "")).strip().lower()
+        action = str(arguments.get("action", "")).strip().lower()
+        room_scope = arguments.get("room_scope", None)
+
+        rules = [
+            "PF means Perimeter of Floor.",
+            "PC means Perimeter of Ceiling.",
+            "F means Floor Area.",
+            "W means Wall Area.",
+            "C means Ceiling Area.",
+            "WC means Walls and Ceiling.",
+            "For room-wide trim items like baseboard or chair rail, default quantity to PF unless the user specifies partial LF or a deduction.",
+        ]
+
+        suggestions: list[dict[str, Any]] = []
+        normalized_text = " ".join(part for part in (topic.lower(), component, action) if part).strip()
+
+        if any(term in normalized_text for term in {"baseboard", "chair rail", "crown", "trim"}):
+            suggestions.append(
+                {
+                    "when": "room-wide trim around a room",
+                    "quantity": "PF",
+                    "reason": "Trim around the room usually follows the perimeter of floor in Xactimate.",
+                }
+            )
+
+        if "baseboard" in normalized_text and any(term in normalized_text for term in {"detach", "reset"}):
+            suggestions.extend(
+                [
+                    {
+                        "when": "full-room baseboard detach and reset",
+                        "approved_code": "FNC/BRS",
+                        "quantity": "PF",
+                        "reason": "Current price list has an explicit Baseboard - Detach & reset selector.",
+                    },
+                    {
+                        "when": "full-room multi-member baseboard detach and reset",
+                        "approved_code": "FNC/BRS>",
+                        "quantity": "PF",
+                        "reason": "Use the multi-member detach/reset selector when the trim is built up from multiple members.",
+                    },
+                    {
+                        "when": "reset only after another company already detached the baseboard",
+                        "approved_code": "FNC/BR",
+                        "quantity": "PF",
+                        "reason": "Reset-only selector excludes detaching and is intended after prior removal.",
+                    },
+                ]
+            )
+
+        if "baseboard" in normalized_text and "replace" in normalized_text:
+            suggestions.append(
+                {
+                    "when": "generic full-room baseboard replacement with no size or material given",
+                    "approved_code": "FNC/B3",
+                    "quantity": "PF",
+                    "reason": "Default practical assumption is common paint-grade 3 1/4 inch baseboard unless the user specifies otherwise.",
+                }
+            )
+
+        if "baseboard" in normalized_text and "paint" in normalized_text:
+            suggestions.append(
+                {
+                    "when": "full-room baseboard paint, two coats",
+                    "approved_code": "PNT/B2",
+                    "quantity": "PF",
+                    "reason": "Baseboard paint in a room usually tracks the room perimeter.",
+                }
+            )
+
+        if room_scope is True and not suggestions:
+            suggestions.append(
+                {
+                    "when": "generic full-room scope with no better default",
+                    "quantity": "PF",
+                    "reason": "Room-wide trim defaults often start from PF when the item runs around the floor perimeter.",
+                }
+            )
+
+        return {
+            "topic": topic,
+            "component": component,
+            "action": action,
+            "room_scope": room_scope,
+            "variables": {
+                "PF": "Perimeter of Floor",
+                "PC": "Perimeter of Ceiling",
+                "F": "Floor Area",
+                "W": "Wall Area",
+                "C": "Ceiling Area",
+                "WC": "Walls and Ceiling",
+            },
+            "rules": rules,
+            "suggestions": suggestions,
+            "notes": [
+                "Use explicit CAT/SEL selectors from the current price list when they exist.",
+                "This backend does not yet store a separate activity-code field, so explicit selectors are safer than relying on activity syntax.",
+                "If the user gives a deduction such as doorway footage, subtract it from PF like PF-12.",
+            ],
         }
 
     def _function_calls(self, response: dict[str, Any]) -> list[dict[str, Any]]:
