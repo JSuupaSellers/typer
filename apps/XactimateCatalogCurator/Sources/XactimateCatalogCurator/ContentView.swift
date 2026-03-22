@@ -113,6 +113,10 @@ struct ContentView: View {
                 onSave: { model.saveLLMSettings($0) }
             )
         }
+        .background(
+            WindowActivationBridge()
+                .frame(width: 0, height: 0)
+        )
         .overlay {
             if model.isBusy {
                 ZStack {
@@ -146,6 +150,38 @@ struct ContentView: View {
                 }
             }
         }
+    }
+}
+
+private struct WindowActivationBridge: NSViewRepresentable {
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            activate(view: view, coordinator: context.coordinator)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            activate(view: nsView, coordinator: context.coordinator)
+        }
+    }
+
+    private func activate(view: NSView, coordinator: Coordinator) {
+        guard !coordinator.hasActivated else { return }
+        guard let window = view.window else { return }
+        coordinator.hasActivated = true
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
+    final class Coordinator {
+        var hasActivated = false
     }
 }
 
