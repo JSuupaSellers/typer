@@ -4,26 +4,45 @@ struct ContentView: View {
     @StateObject private var model = FieldCaptureAppModel()
     @State private var showingPublishConfirm = false
 
+    private let canvasTop = Color(red: 0.98, green: 0.97, blue: 0.94)
+    private let canvasBottom = Color(red: 0.91, green: 0.95, blue: 0.99)
+    private let panelFill = Color.white.opacity(0.92)
+    private let panelStroke = Color.black.opacity(0.06)
+    private let ink = Color(red: 0.10, green: 0.14, blue: 0.18)
+    private let accent = Color(red: 0.09, green: 0.46, blue: 0.33)
+    private let assistantBubble = Color(red: 0.94, green: 0.96, blue: 0.98)
+    private let transcriptTint = Color(red: 0.92, green: 0.97, blue: 0.93)
+    private let rejectedTint = Color(red: 0.92, green: 0.92, blue: 0.92)
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    hero
-                    connectionCard
+                    sessionHeader
+                    settingsPanel
                     if model.draft != nil {
-                        roomsCard
-                        chatCard
-                        sectionsCard
-                        workflowCard
+                        overviewPanel
+                        chatPanel
+                        roomFilterPanel
+                        roomStackPanel
+                        actionPanel
                     } else {
-                        emptyDraftCard
+                        emptyStatePanel
                     }
                 }
-                .padding(16)
-                .padding(.bottom, 120)
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 124)
             }
             .background(background)
-            .navigationTitle("Claim Draft")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Claim Draft")
+                        .font(.system(size: 19, weight: .semibold, design: .rounded))
+                        .foregroundStyle(ink)
+                }
+            }
             .safeAreaInset(edge: .bottom) {
                 composerBar
             }
@@ -52,59 +71,78 @@ struct ContentView: View {
                     ProgressView(model.busyMessage)
                         .padding(.horizontal, 22)
                         .padding(.vertical, 18)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                        .shadow(radius: 16, y: 10)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .shadow(color: Color.black.opacity(0.14), radius: 24, y: 12)
                 }
             }
         }
     }
 
-    private var hero: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Talk through the claim room by room.")
-                .font(.system(.largeTitle, design: .rounded, weight: .bold))
-            Text("The backend keeps the claim draft, the agent fills line items by section, and you review the room stack before it ever touches the Pi.")
-                .font(.system(.body, design: .rounded))
-                .foregroundStyle(.secondary)
+    private var sessionHeader: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Room-by-room estimating")
+                        .font(.system(size: 29, weight: .bold, design: .rounded))
+                        .foregroundStyle(ink)
+                    Text("Talk through the loss, let the backend build the draft, then review sections before they reach the Pi.")
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .foregroundStyle(ink.opacity(0.72))
+                }
+                Spacer(minLength: 12)
+                statusPill(label: model.draft == nil ? "Idle" : "Live Draft", systemImage: model.draft == nil ? "circle.dashed" : "bolt.fill")
+            }
+
+            if let publish = model.publishResponse {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(accent)
+                    Text("Queued \(publish.commandCount) commands at seq \(publish.startingSeq)-\(publish.endingSeq).")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(ink.opacity(0.85))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(transcriptTint, in: Capsule(style: .continuous))
+            }
         }
-        .padding(24)
+        .padding(22)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [Color(red: 0.96, green: 0.98, blue: 0.94), Color(red: 0.90, green: 0.94, blue: 0.99)],
+                        colors: [Color.white.opacity(0.95), Color(red: 0.92, green: 0.96, blue: 0.95)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .stroke(Color.white.opacity(0.8), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.06), radius: 20, y: 10)
     }
 
-    private var connectionCard: some View {
-        card("Connection") {
-            VStack(spacing: 12) {
-                TextField("Backend URL", text: $model.backendBaseURL)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.URL)
-                    .textFieldStyle(.roundedBorder)
-
-                SecureField("Producer API Key", text: $model.backendAPIKey)
-                    .textInputAutocapitalization(.never)
-                    .textFieldStyle(.roundedBorder)
-
-                HStack(spacing: 12) {
-                    TextField("Job ID", text: $model.jobID)
-                        .textFieldStyle(.roundedBorder)
-                    TextField("Bridge ID", text: $model.bridgeID)
-                        .textFieldStyle(.roundedBorder)
+    private var settingsPanel: some View {
+        panel {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionEyebrow("Connection")
+                VStack(spacing: 10) {
+                    polishedField(title: "Backend URL", text: $model.backendBaseURL)
+                    polishedSecureField(title: "Producer API Key", text: $model.backendAPIKey)
+                    HStack(spacing: 10) {
+                        polishedField(title: "Job ID", text: $model.jobID)
+                        polishedField(title: "Bridge ID", text: $model.bridgeID)
+                    }
                 }
-
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     Button("Open Draft") {
                         Task { await model.openDraft() }
                     }
                     .buttonStyle(.borderedProminent)
+                    .tint(accent)
                     .disabled(!model.canOpenDraft)
 
                     if model.draft != nil {
@@ -118,99 +156,150 @@ struct ContentView: View {
         }
     }
 
-    private var emptyDraftCard: some View {
-        card("Start Here") {
-            Text("Open a draft first, then use the composer below to talk through the claim room by room. Voice turns transcribe on the backend, text turns go straight to the draft agent.")
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var roomsCard: some View {
-        card("Rooms") {
-            ScrollView(.horizontal, showsIndicators: false) {
+    private var overviewPanel: some View {
+        panel {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionEyebrow("Overview")
                 HStack(spacing: 10) {
-                    ForEach(model.rooms, id: \.self) { room in
-                        Button(room) {
-                            model.selectedRoom = room
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(model.selectedRoom == room ? Color.accentColor : Color(.secondarySystemBackground))
-                        )
-                        .foregroundStyle(model.selectedRoom == room ? Color.white : Color.primary)
-                    }
+                    metricCard(value: "\(model.rooms.count - 1)", label: "Rooms", tint: accent)
+                    metricCard(value: "\(acceptedCount)", label: "Accepted", tint: .green)
+                    metricCard(value: "\(rejectedCount)", label: "Rejected", tint: .gray)
+                    metricCard(value: "\(messageCount)", label: "Turns", tint: .blue)
                 }
             }
         }
     }
 
-    private var chatCard: some View {
-        card("Conversation") {
-            VStack(alignment: .leading, spacing: 12) {
+    private var chatPanel: some View {
+        panel {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    sectionEyebrow("Conversation")
+                    Spacer()
+                    if !model.transcript.isEmpty {
+                        statusPill(label: "Voice Applied", systemImage: "waveform")
+                    }
+                }
+
                 if !model.transcript.isEmpty {
-                    Label(model.transcript, systemImage: "waveform")
-                        .font(.caption)
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "waveform")
+                            .foregroundStyle(accent)
+                        Text(model.transcript)
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundStyle(ink.opacity(0.75))
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(transcriptTint, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
 
                 if let messages = model.draft?.messages, !messages.isEmpty {
-                    ForEach(messages) { message in
-                        HStack {
-                            if message.role == "assistant" {
-                                messageBubble(message, accent: Color(.secondarySystemBackground), foreground: .primary)
-                                Spacer(minLength: 30)
-                            } else {
-                                Spacer(minLength: 30)
-                                messageBubble(message, accent: Color.accentColor.opacity(0.95), foreground: .white)
+                    VStack(spacing: 12) {
+                        ForEach(messages) { message in
+                            HStack {
+                                if message.role == "assistant" {
+                                    chatBubble(message, fill: assistantBubble, foreground: ink, suppressStroke: false)
+                                    Spacer(minLength: 52)
+                                } else {
+                                    Spacer(minLength: 52)
+                                    chatBubble(message, fill: accent, foreground: .white, suppressStroke: true)
+                                }
                             }
                         }
                     }
                 } else {
-                    Text("No turns yet. Start with something like: “Living room ceiling has a 2x2 patch and repaint the ceiling.”")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("No turns yet")
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundStyle(ink)
+                        Text("Start with something natural like “Living room ceiling has a 2x2 patch and repaint the ceiling” or record a voice turn.")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundStyle(ink.opacity(0.65))
+                    }
+                    .padding(18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.7), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 }
             }
         }
     }
 
-    private var sectionsCard: some View {
-        card("Room Stack") {
-            VStack(alignment: .leading, spacing: 16) {
+    private var roomFilterPanel: some View {
+        panel {
+            VStack(alignment: .leading, spacing: 12) {
+                sectionEyebrow("Rooms")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(model.rooms, id: \.self) { room in
+                            Button(room) {
+                                model.selectedRoom = room
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(model.selectedRoom == room ? accent : Color.white.opacity(0.72))
+                            )
+                            .overlay(
+                                Capsule(style: .continuous)
+                                    .stroke(model.selectedRoom == room ? accent : panelStroke, lineWidth: 1)
+                            )
+                            .foregroundStyle(model.selectedRoom == room ? Color.white : ink)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var roomStackPanel: some View {
+        panel {
+            VStack(alignment: .leading, spacing: 14) {
+                sectionEyebrow("Room Stack")
                 if model.filteredSections.isEmpty {
-                    Text("Accepted and rejected line items will appear here grouped by room and section.")
-                        .foregroundStyle(.secondary)
+                    Text("Line items will appear here grouped by room and section once the draft agent starts filling them in.")
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                        .foregroundStyle(ink.opacity(0.6))
                 } else {
                     ForEach(model.filteredSections) { group in
                         VStack(alignment: .leading, spacing: 12) {
-                            HStack(alignment: .firstTextBaseline) {
-                                VStack(alignment: .leading, spacing: 4) {
+                            HStack(alignment: .center) {
+                                VStack(alignment: .leading, spacing: 5) {
                                     Text(group.room)
-                                        .font(.headline)
-                                    Text(group.note)
-                                        .font(.caption.weight(.semibold))
-                                        .foregroundStyle(.secondary)
+                                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                                        .foregroundStyle(ink)
+                                    Text(group.note.uppercased())
+                                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                                        .kerning(0.8)
+                                        .foregroundStyle(accent)
                                 }
                                 Spacer()
-                                Text("\(group.items.count) item\(group.items.count == 1 ? "" : "s")")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                Text("\(group.items.count)")
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    .foregroundStyle(ink.opacity(0.75))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Color.white.opacity(0.84), in: Capsule(style: .continuous))
                             }
 
                             ForEach(group.items) { item in
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack(alignment: .top) {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            Text("\(item.approvedCode) • \(item.description)")
-                                                .font(.subheadline.weight(.semibold))
-                                            Text(detailLine(for: item))
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 10) {
+                                    HStack(alignment: .top, spacing: 10) {
+                                        VStack(alignment: .leading, spacing: 5) {
+                                            Text(item.approvedCode)
+                                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                                .foregroundStyle(accent)
+                                            Text(item.description)
+                                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                                .foregroundStyle(ink)
+                                            let details = detailLine(for: item)
+                                            if !details.isEmpty {
+                                                Text(details)
+                                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                                    .foregroundStyle(ink.opacity(0.62))
+                                            }
                                         }
                                         Spacer()
                                         statusBadge(item.status)
@@ -218,169 +307,301 @@ struct ContentView: View {
 
                                     if !item.rationale.trimmed.isEmpty {
                                         Text(item.rationale)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                                            .foregroundStyle(ink.opacity(0.65))
                                     }
 
-                                    HStack(spacing: 10) {
-                                        Button("Accept") {
+                                    HStack(spacing: 8) {
+                                        actionChip("Accept", tint: .green, fill: item.status == "accepted" ? .green.opacity(0.18) : .white) {
                                             Task { await model.setItemStatus(item.id, status: "accepted") }
                                         }
-                                        .buttonStyle(.borderedProminent)
-                                        .tint(.green)
-                                        .controlSize(.small)
-
-                                        Button("Reject") {
+                                        actionChip("Reject", tint: .secondary, fill: item.status == "rejected" ? rejectedTint : .white) {
                                             Task { await model.setItemStatus(item.id, status: "rejected") }
                                         }
-                                        .buttonStyle(.bordered)
-                                        .tint(.secondary)
-                                        .controlSize(.small)
                                     }
                                 }
-                                .padding(14)
-                                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                .padding(16)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                        .stroke(item.status == "accepted" ? accent.opacity(0.18) : panelStroke, lineWidth: 1)
+                                )
                             }
                         }
+                        .padding(16)
+                        .background(Color.black.opacity(0.03), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
                     }
                 }
             }
         }
     }
 
-    private var workflowCard: some View {
-        card("Workflow") {
+    private var actionPanel: some View {
+        panel {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 12) {
-                    Button("Accept All") {
+                sectionEyebrow("Workflow")
+                HStack(spacing: 10) {
+                    actionButton("Accept All", systemImage: "checkmark.circle", fill: Color.white, foreground: ink) {
                         Task { await model.acceptAll() }
                     }
-                    .buttonStyle(.bordered)
-
-                    Button("Plan for Pi") {
+                    actionButton("Plan for Pi", systemImage: "bolt.horizontal.circle", fill: accent, foreground: .white) {
                         Task { await model.planDraft() }
                     }
-                    .buttonStyle(.borderedProminent)
                     .disabled(!model.canPlan)
                 }
 
                 if let plan = model.planResponse {
-                    HStack(spacing: 12) {
-                        statPill(title: "Approved", value: "\(plan.approvedCount)", color: .green)
-                        statPill(title: "Review", value: "\(plan.needsReviewCount)", color: .orange)
-                        statPill(title: "Unresolved", value: "\(plan.unresolvedCount)", color: .red)
+                    HStack(spacing: 10) {
+                        metricCard(value: "\(plan.approvedCount)", label: "Approved", tint: .green)
+                        metricCard(value: "\(plan.needsReviewCount)", label: "Review", tint: .orange)
+                        metricCard(value: "\(plan.unresolvedCount)", label: "Unresolved", tint: .red)
                     }
                 }
 
-                Button("Publish to Bridge") {
+                actionButton("Publish to Bridge", systemImage: "paperplane.fill", fill: ink, foreground: .white) {
                     showingPublishConfirm = true
                 }
-                .buttonStyle(.borderedProminent)
                 .disabled(!model.canPublish)
+            }
+        }
+    }
 
-                if let publish = model.publishResponse {
-                    Text("Queued \(publish.commandCount) commands at seq \(publish.startingSeq)-\(publish.endingSeq).")
-                        .font(.subheadline.weight(.semibold))
-                    Text("Approved codes: \(publish.approvedCodes.joined(separator: ", "))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+    private var emptyStatePanel: some View {
+        panel {
+            VStack(alignment: .leading, spacing: 10) {
+                sectionEyebrow("Start Here")
+                Text("Open a draft first, then use the composer below to talk through the loss room by room. The app is designed to feel like a live estimating conversation, not a form.")
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .foregroundStyle(ink.opacity(0.68))
             }
         }
     }
 
     private var composerBar: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             if let audioFileURL = model.audioFileURL {
-                Label(audioFileURL.lastPathComponent, systemImage: "waveform.circle.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform.circle.fill")
+                        .foregroundStyle(accent)
+                    Text(audioFileURL.lastPathComponent)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(ink.opacity(0.75))
+                }
             }
 
             HStack(alignment: .bottom, spacing: 10) {
-                TextField("Add a room note or correction...", text: $model.messageDraft, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1 ... 4)
+                TextField("Describe a room, correction, or missing scope...", text: $model.messageDraft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(Color.white, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .stroke(panelStroke, lineWidth: 1)
+                    )
+                    .lineLimit(1 ... 5)
 
-                Button(model.isRecording ? "Stop" : "Rec") {
+                iconButton(systemImage: model.isRecording ? "stop.fill" : "mic.fill", fill: model.isRecording ? .red : accent) {
                     Task { await model.toggleRecording() }
                 }
-                .buttonStyle(.bordered)
-                .tint(model.isRecording ? .red : .accentColor)
 
-                Button("Send") {
+                iconButton(systemImage: "arrow.up", fill: ink) {
                     Task { await model.sendTextTurn() }
                 }
-                .buttonStyle(.borderedProminent)
                 .disabled(!model.canSendText)
 
-                Button("Voice") {
+                iconButton(systemImage: "waveform", fill: accent) {
                     Task { await model.sendVoiceTurn() }
                 }
-                .buttonStyle(.borderedProminent)
                 .disabled(!model.canSendVoice)
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
-        .padding(.bottom, 20)
+        .padding(.bottom, 18)
         .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(Color.black.opacity(0.05))
+                .frame(height: 1)
+        }
     }
 
     private var background: some View {
-        LinearGradient(
-            colors: [Color(red: 0.98, green: 0.99, blue: 0.97), Color(red: 0.94, green: 0.96, blue: 0.99)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
+        ZStack {
+            LinearGradient(
+                colors: [canvasTop, canvasBottom],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            Circle()
+                .fill(Color.white.opacity(0.35))
+                .frame(width: 280, height: 280)
+                .blur(radius: 12)
+                .offset(x: 120, y: -240)
+
+            Circle()
+                .fill(Color(red: 0.85, green: 0.93, blue: 0.90).opacity(0.6))
+                .frame(width: 240, height: 240)
+                .blur(radius: 18)
+                .offset(x: -140, y: -120)
+        }
     }
 
-    private func card<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title)
-                .font(.system(.title3, design: .rounded, weight: .bold))
+    private func panel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             content()
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .background(panelFill, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .stroke(panelStroke, lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.045), radius: 18, y: 8)
     }
 
-    private func messageBubble(_ message: DraftMessagePayload, accent: Color, foreground: Color) -> some View {
+    private func sectionEyebrow(_ title: String) -> some View {
+        Text(title.uppercased())
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .kerning(0.8)
+            .foregroundStyle(ink.opacity(0.5))
+    }
+
+    private func polishedField(title: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(ink.opacity(0.55))
+            TextField(title, text: text)
+                .textInputAutocapitalization(.never)
+                .font(.system(size: 15, weight: .medium, design: .rounded))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(panelStroke, lineWidth: 1)
+                )
+        }
+    }
+
+    private func polishedSecureField(title: String, text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .foregroundStyle(ink.opacity(0.55))
+            SecureField(title, text: text)
+                .textInputAutocapitalization(.never)
+                .font(.system(size: 15, weight: .medium, design: .rounded))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(panelStroke, lineWidth: 1)
+                )
+        }
+    }
+
+    private func metricCard(value: String, label: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value)
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+                .foregroundStyle(tint)
+            Text(label)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(ink.opacity(0.52))
+                .textCase(.uppercase)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(panelStroke, lineWidth: 1)
+        )
+    }
+
+    private func chatBubble(_ message: DraftMessagePayload, fill: Color, foreground: Color, suppressStroke: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(message.text)
-                .font(.body)
+                .font(.system(size: 15, weight: .medium, design: .rounded))
             Text(message.role.capitalized)
-                .font(.caption2.weight(.semibold))
+                .font(.system(size: 11, weight: .bold, design: .rounded))
                 .textCase(.uppercase)
-                .opacity(0.7)
+                .opacity(0.66)
         }
         .foregroundStyle(foreground)
-        .padding(14)
-        .background(accent, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(fill, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(suppressStroke ? Color.clear : panelStroke, lineWidth: 1)
+        )
     }
 
     private func statusBadge(_ status: String) -> some View {
-        Text(status.capitalized)
-            .font(.caption.weight(.bold))
+        let accepted = status == "accepted"
+        return Text(status.capitalized)
+            .font(.system(size: 11, weight: .bold, design: .rounded))
             .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(status == "accepted" ? Color.green.opacity(0.18) : Color.gray.opacity(0.18), in: Capsule(style: .continuous))
-            .foregroundStyle(status == "accepted" ? Color.green : Color.secondary)
+            .padding(.vertical, 7)
+            .background(accepted ? accent.opacity(0.12) : rejectedTint, in: Capsule(style: .continuous))
+            .foregroundStyle(accepted ? accent : ink.opacity(0.58))
     }
 
-    private func statPill(title: String, value: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(value)
-                .font(.title3.weight(.bold))
-            Text(title)
-                .font(.caption.weight(.semibold))
+    private func statusPill(label: String, systemImage: String) -> some View {
+        Label(label, systemImage: systemImage)
+            .font(.system(size: 12, weight: .bold, design: .rounded))
+            .foregroundStyle(accent)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(Color.white.opacity(0.85), in: Capsule(style: .continuous))
+    }
+
+    private func actionChip(_ title: String, tint: Color, fill: Color, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .buttonStyle(.plain)
+            .font(.system(size: 13, weight: .bold, design: .rounded))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(fill, in: Capsule(style: .continuous))
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(tint.opacity(0.15), lineWidth: 1)
+            )
+    }
+
+    private func actionButton(_ title: String, systemImage: String, fill: Color, foreground: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
         }
-        .foregroundStyle(color)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .buttonStyle(.plain)
+        .foregroundStyle(foreground)
+        .background(fill, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private func iconButton(systemImage: String, fill: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 16, weight: .bold))
+                .frame(width: 48, height: 48)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .background(fill, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func detailLine(for item: DraftLineItemPayload) -> String {
@@ -388,5 +609,17 @@ struct ContentView: View {
             .map(\.trimmed)
             .filter { !$0.isEmpty }
             .joined(separator: " • ")
+    }
+
+    private var acceptedCount: Int {
+        model.draft?.items.filter { $0.status == "accepted" }.count ?? 0
+    }
+
+    private var rejectedCount: Int {
+        model.draft?.items.filter { $0.status == "rejected" }.count ?? 0
+    }
+
+    private var messageCount: Int {
+        model.draft?.messages.count ?? 0
     }
 }
