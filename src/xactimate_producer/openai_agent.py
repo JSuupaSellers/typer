@@ -98,18 +98,48 @@ class OpenAIDraftAgent:
             {
                 "type": "function",
                 "name": "search_line_items",
-                "description": "Search the curated Xactimate catalog for the best CAT/SEL candidates for a described scope item.",
+                "description": (
+                    "Search the curated Xactimate catalog for one atomic scope item. "
+                    "The query must be a short estimator-style search phrase, not a full user sentence. "
+                    "Good examples: 'seal water stain ceiling', 'paint acoustic ceiling', "
+                    "'drywall patch 2x2', 're-apply protective coating carpet'. "
+                    "Bad examples: whole-room narratives, questions, or multiple tasks joined with 'and'."
+                ),
                 "strict": True,
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "query": {"type": "string"},
-                        "room": {"type": ["string", "null"]},
-                        "section": {"type": ["string", "null"]},
-                        "surface": {"type": ["string", "null"]},
-                        "damage_type": {"type": ["string", "null"]},
-                        "keywords": {"type": ["string", "null"]},
-                        "limit": {"type": ["integer", "null"]},
+                        "query": {
+                            "type": "string",
+                            "description": (
+                                "Required. A compact 2-8 word search phrase for a single line-item need. "
+                                "Do not include room names if room is provided separately."
+                            ),
+                        },
+                        "room": {
+                            "type": ["string", "null"],
+                            "description": "Optional room or area, for example 'Living room' or 'Kitchen'.",
+                        },
+                        "section": {
+                            "type": ["string", "null"],
+                            "description": "Optional section like 'Ceiling', 'Walls', 'Floors', 'Electrical', or 'Plumbing'.",
+                        },
+                        "surface": {
+                            "type": ["string", "null"],
+                            "description": "Optional affected surface or component, for example 'Ceiling' or 'Wall'.",
+                        },
+                        "damage_type": {
+                            "type": ["string", "null"],
+                            "description": "Optional repair or damage pattern, for example 'Paint', 'Patch', 'Seal', or 'Protection'.",
+                        },
+                        "keywords": {
+                            "type": ["string", "null"],
+                            "description": "Optional comma-free shorthand keywords like 'water stain shellac' or 'carpet coating protect'.",
+                        },
+                        "limit": {
+                            "type": ["integer", "null"],
+                            "description": "Optional result cap. Use 5-8 when exploring and 3-5 when refining.",
+                        },
                     },
                     "required": [
                         "query",
@@ -153,6 +183,15 @@ class OpenAIDraftAgent:
             limit = max(int(arguments.get("limit", 5) or 5), 1)
             candidates = self.runtime_client.recommend_for_item(scope_item, limit)
             return {
+                "search_request": {
+                    "query": scope_item.description,
+                    "room": scope_item.room,
+                    "section": scope_item.section,
+                    "surface": scope_item.surface,
+                    "damage_type": scope_item.damage_type,
+                    "keywords": scope_item.keywords,
+                    "limit": limit,
+                },
                 "candidates": [candidate.to_dict() for candidate in candidates],
             }
         if name == "get_line_item":
@@ -168,6 +207,14 @@ class OpenAIDraftAgent:
             "Typical section names are Ceiling, Walls, Floors, then system-specific sections like Cabinetry, Plumbing, Electrical, or HVAC when they matter. "
             "The backend automatically inserts note separator rows from section titles, so your operations should focus on line items. "
             "Never invent CAT/SEL codes. Use search_line_items and get_line_item before adding any line item. "
+            "For search_line_items, search one atomic scope item at a time. "
+            "Do not send the whole user narrative into the tool. "
+            "Convert each need into a short estimator-style query like 'seal water stain ceiling', "
+            "'paint acoustic ceiling', 'paint wall', 'drywall patch 2x2', or 're-apply protective coating carpet'. "
+            "If the user describes multiple needs, make multiple search_line_items calls. "
+            "Use room, section, surface, damage_type, and keywords fields to narrow the search instead of overloading query text. "
+            "When a search returns weak or obviously wrong candidates, try a narrower or more domain-specific query before giving up. "
+            "If the user asks what search returned, answer with the top returned CAT/SEL candidates and why they look right or wrong. "
             "Preserve existing accepted items unless the user clearly asks to remove or replace them. "
             "When the user corrects a room or section, use clear_section or remove_line_item before adding replacements. "
             "Return JSON only with this shape: "

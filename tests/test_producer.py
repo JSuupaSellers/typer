@@ -387,12 +387,15 @@ class ProducerTests(unittest.TestCase):
 
         search_tool = next(tool for tool in agent._tool_definitions() if tool["name"] == "search_line_items")
         parameters = search_tool["parameters"]
+        self.assertIn("one atomic scope item", search_tool["description"])
+        self.assertIn("short estimator-style search phrase", search_tool["description"])
         self.assertEqual(
             parameters["required"],
             ["query", "room", "section", "surface", "damage_type", "keywords", "limit"],
         )
         self.assertEqual(parameters["properties"]["room"]["type"], ["string", "null"])
         self.assertEqual(parameters["properties"]["limit"]["type"], ["integer", "null"])
+        self.assertIn("compact 2-8 word search phrase", parameters["properties"]["query"]["description"])
 
     def test_openai_agent_uses_stored_responses_for_tool_loops(self) -> None:
         agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())
@@ -407,6 +410,26 @@ class ProducerTests(unittest.TestCase):
             "max_output_tokens": 3000,
         }
         self.assertTrue(initial_payload["store"])
+
+    def test_search_tool_returns_search_request_context(self) -> None:
+        agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())
+
+        result = agent._run_tool(
+            "search_line_items",
+            {
+                "query": "drywall patch 2x2",
+                "room": "Living room",
+                "section": "Ceiling",
+                "surface": "Ceiling",
+                "damage_type": "Patch",
+                "keywords": "picture frame",
+                "limit": 5,
+            },
+        )
+
+        self.assertEqual(result["search_request"]["query"], "drywall patch 2x2")
+        self.assertEqual(result["search_request"]["section"], "Ceiling")
+        self.assertIn("candidates", result)
 
     def test_chat_endpoint_surfaces_agent_failures(self) -> None:
         service = ProducerService(self.config, FakeRuntimeClient(), FakePublisher())
