@@ -873,13 +873,13 @@ private struct QuickReviewStageView: View {
             .padding(.bottom, 8)
         }
         .background(
-            QuickReviewShortcutMonitor(
+            QuickReviewKeyCapture(
                 isEnabled: model.selectedStage == .quickReview && model.currentReviewItem != nil,
                 onUsedBefore: { model.markCurrentReviewItem(as: .usedBefore) },
                 onNeverUsed: { model.markCurrentReviewItem(as: .neverUsed) },
                 onSkip: { model.skipCurrentReviewItem() }
             )
-            .frame(width: 0, height: 0)
+            .frame(width: 1, height: 1)
         )
         .scrollIndicators(.hidden)
     }
@@ -1424,14 +1424,14 @@ private struct RecommendationScenarioHighlightCard: View {
     }
 }
 
-private struct QuickReviewShortcutMonitor: NSViewRepresentable {
+private struct QuickReviewKeyCapture: NSViewRepresentable {
     let isEnabled: Bool
     let onUsedBefore: () -> Void
     let onNeverUsed: () -> Void
     let onSkip: () -> Void
 
-    func makeNSView(context: Context) -> QuickReviewShortcutMonitorView {
-        let view = QuickReviewShortcutMonitorView()
+    func makeNSView(context: Context) -> QuickReviewKeyCaptureView {
+        let view = QuickReviewKeyCaptureView()
         view.update(
             isEnabled: isEnabled,
             onUsedBefore: onUsedBefore,
@@ -1441,7 +1441,7 @@ private struct QuickReviewShortcutMonitor: NSViewRepresentable {
         return view
     }
 
-    func updateNSView(_ nsView: QuickReviewShortcutMonitorView, context: Context) {
+    func updateNSView(_ nsView: QuickReviewKeyCaptureView, context: Context) {
         nsView.update(
             isEnabled: isEnabled,
             onUsedBefore: onUsedBefore,
@@ -1451,23 +1451,28 @@ private struct QuickReviewShortcutMonitor: NSViewRepresentable {
     }
 }
 
-private final class QuickReviewShortcutMonitorView: NSView {
-    private var monitor: Any?
+private final class QuickReviewKeyCaptureView: NSView {
     private var isEnabled = false
     private var onUsedBefore: (() -> Void)?
     private var onNeverUsed: (() -> Void)?
     private var onSkip: (() -> Void)?
+    private var becameKeyObserver: NSObjectProtocol?
+
+    override var acceptsFirstResponder: Bool {
+        isEnabled
+    }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         if newWindow == nil {
-            removeMonitor()
+            removeObservers()
         }
         super.viewWillMove(toWindow: newWindow)
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        refreshMonitor()
+        installObservers()
+        activateIfNeeded()
     }
 
     func update(
@@ -1480,64 +1485,82 @@ private final class QuickReviewShortcutMonitorView: NSView {
         self.onUsedBefore = onUsedBefore
         self.onNeverUsed = onNeverUsed
         self.onSkip = onSkip
-        refreshMonitor()
+        activateIfNeeded()
     }
 
-    private func refreshMonitor() {
-        guard isEnabled, window != nil else {
-            removeMonitor()
-            return
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        handle(event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if !handle(event) {
+            super.keyDown(with: event)
         }
+    }
 
-        guard monitor == nil else { return }
-
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
-            guard self.isEnabled, self.window != nil, NSApp.keyWindow === self.window else {
-                return event
-            }
-            guard !Self.isTextInputFocused(in: self.window) else {
-                return event
-            }
-
-            let disallowedModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .function]
-            guard event.modifierFlags.intersection(disallowedModifiers).isEmpty else {
-                return event
-            }
-
-            switch event.charactersIgnoringModifiers?.lowercased() {
-            case " ":
-                self.onUsedBefore?()
-                return nil
-            case "n":
-                self.onNeverUsed?()
-                return nil
-            case "s":
-                self.onSkip?()
-                return nil
-            default:
-                return event
+    private func activateIfNeeded() {
+        guard isEnabled, window != nil else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isEnabled, let window = self.window else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+            if window.firstResponder !== self {
+                window.makeFirstResponder(self)
             }
         }
     }
 
-    private func removeMonitor() {
-        if let monitor {
-            NSEvent.removeMonitor(monitor)
-            self.monitor = nil
-        }
-    }
+    private func handle(_ event: NSEvent) -> Bool {
+        guard isEnabled else { return false }
+        guard window != nil, NSApp.keyWindow === window else { return false }
 
-    private static func isTextInputFocused(in window: NSWindow?) -> Bool {
-        guard let responder = window?.firstResponder else { return false }
-        if responder is NSTextView {
+        let disallowedModifiers: NSEvent.ModifierFlags = [.command, .control, .option, .function]
+        guard event.modifierFlags.intersection(disallowedModifiers).isEmpty else {
+            return false
+        }
+
+        switch event.charactersIgnoringModifiers?.lowercased() {
+        case " ":
+            onUsedBefore?()
             return true
-        }
-        if let view = responder as? NSView,
-           String(describing: type(of: view)).contains("Text") {
+        case "n":
+            onNeverUsed?()
             return true
+        case "s":
+            onSkip?()
+            return true
+        default:
+            return false
         }
-        return false
+    }
+
+    private func installObservers() {
+        guard becameKeyObserver == nil, let window else { return }
+        becameKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.activateIfNeeded()
+            }
+        }
+    }
+
+    private func removeObservers() {
+        if let becameKeyObserver {
+            NotificationCenter.default.removeObserver(becameKeyObserver)
+            self.becameKeyObserver = nil
+        }
+    }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
+    override func removeFromSuperview() {
+        removeObservers()
+        super.removeFromSuperview()
     }
 }
 
