@@ -1,0 +1,24 @@
+{
+  "job_id": "claim-1024-living-room",
+  "bridge_id": "default",
+  "items": [
+    {
+      "item_id": "scope-1",
+      "description": "2x2 ceiling patch that needs picture frame and then ceiling painted",
+      "room": "Living room",
+      "surface": "Ceiling",
+      "damage_type": "Patch",
+      "keywords": "picture frame",
+      "quantity": 1
+    },
+    {
+      "item_id": "scope-2",
+      "description": "Paint the ceiling after the patch is complete",
+      "room": "Living room",
+      "surface": "Ceiling",
+      "damage_type": "Paint after patch",
+      "keywords": "ceiling paint",
+      "quantity": 120
+    }
+  ]
+}

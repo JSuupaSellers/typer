@@ -19,6 +19,7 @@ dependencies = [
 [project.scripts]
 pi-keybridge = "pi_keystream_bridge.cli:main"
 xactimate-runtime = "xactimate_catalog_runtime.cli:main"
+xactimate-producer = "xactimate_producer.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

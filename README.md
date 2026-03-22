@@ -84,6 +84,114 @@ Example request body for `POST /recommend`:
 
 This service is where your cloud agent should search the curated catalog. Firebase remains only for the final execution queue that the Raspberry Pi bridge consumes.
 
+## Producer Service
+
+The producer sits between the cloud agent and Firebase:
+
+1. It sends each scope item to the runtime API for CAT/SEL recommendations.
+2. It auto-approves only when the top candidate meets the configured confidence threshold, or when you supply an explicit `approved_code`.
+3. It compiles approved items into deterministic keyboard commands using a versioned Xactimate workflow profile.
+4. It reserves the next command sequence range in Firebase state and appends the job to the queue for the Raspberry Pi bridge.
+
+### Producer config
+
+Start from [producer.example.json](/Users/joshuasellers/Documents/Development/App/Typer/producer.example.json):
+
+```bash
+cp producer.example.json producer.local.json
+```
+
+Fill in:
+
+- `runtime_api_base_url`
+- `runtime_api_key` if your runtime search API requires one
+- `firebase_credentials_path`
+- `firebase_database_url`
+- `firebase_commands_path_template`
+- `firebase_state_path_template`
+
+The workflow profile is intentionally data-driven so you can tune the exact `F6`, `TAB`, `ENTER`, and delay choreography without changing the producer code.
+
+### Estimate job payload
+
+Start from [estimate-job.example.json](/Users/joshuasellers/Documents/Development/App/Typer/estimate-job.example.json):
+
+```json
+{
+  "job_id": "claim-1024-living-room",
+  "bridge_id": "default",
+  "items": [
+    {
+      "item_id": "scope-1",
+      "description": "2x2 ceiling patch that needs picture frame and then ceiling painted",
+      "room": "Living room",
+      "surface": "Ceiling",
+      "damage_type": "Patch",
+      "keywords": "picture frame",
+      "quantity": 1
+    }
+  ]
+}
+```
+
+Optional per-item safety controls:
+
+- `approved_code`: bypass runtime search and use a known CAT/SEL
+- `allow_auto_approve`: set to `false` to force a review step
+- `min_confidence`: override the producer default of `high`
+
+### Plan a job
+
+```bash
+python -m xactimate_producer --config producer.local.json plan \
+  --job estimate-job.example.json
+```
+
+This resolves every scope item against the runtime API and shows whether each item is:
+
+- `approved`
+- `needs_review`
+- `unresolved`
+
+### Compile a preview
+
+```bash
+python -m xactimate_producer --config producer.local.json compile \
+  --job estimate-job.example.json \
+  --starting-seq 1
+```
+
+This returns the exact Firebase command objects that would be queued for the Pi bridge.
+
+### Publish to Firebase
+
+```bash
+python -m xactimate_producer --config producer.local.json publish \
+  --job estimate-job.example.json
+```
+
+Publish behavior:
+
+- sequence numbers are reserved under the bridge state before writing commands
+- new jobs append after the highest applied or reserved sequence
+- the producer does not reset the queue back to `1`, so the Pi bridge stays in sync
+- if any scope item still needs review, publish fails with a review plan instead of guessing
+
+### Serve the producer as an API
+
+```bash
+python -m xactimate_producer --config producer.local.json serve --port 8790
+```
+
+Endpoints:
+
+- `GET /health`
+- `POST /plan`
+- `POST /compile`
+- `POST /publish`
+
+This is the service your cloud agent should call once it has a transcript or other structured room description ready.
+
 ## Command contract
 
 The producer should write immutable commands under the configured `firebase_commands_path`.

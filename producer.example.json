@@ -1,0 +1,25 @@
+{
+  "runtime_api_base_url": "http://127.0.0.1:8787",
+  "runtime_api_key": "",
+  "producer_api_key": "",
+  "request_timeout_s": 20.0,
+  "firebase_credentials_path": "firebase-service-account.json",
+  "firebase_database_url": "https://your-project-id.firebaseio.com",
+  "firebase_commands_path_template": "/bridges/{bridge_id}/commands",
+  "firebase_state_path_template": "/bridges/{bridge_id}/state",
+  "recommendation_limit": 5,
+  "auto_approve_min_confidence": "high",
+  "workflow_profile": {
+    "before_all": [],
+    "per_item": [
+      { "kind": "key", "key": "F6", "delay_after_ms": 250 },
+      { "kind": "text", "text": "{code}", "delay_after_ms": 90 },
+      { "kind": "key", "key": "ENTER", "delay_after_ms": 350 },
+      { "kind": "key", "key": "TAB", "when": "has_quantity", "delay_after_ms": 120 },
+      { "kind": "text", "text": "{quantity}", "when": "has_quantity", "delay_after_ms": 90 },
+      { "kind": "key", "key": "ENTER", "delay_after_ms": 300 },
+      { "kind": "delay", "duration_ms": 150 }
+    ],
+    "after_all": []
+  }
+}
