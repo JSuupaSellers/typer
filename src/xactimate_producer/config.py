@@ -61,6 +61,7 @@ class WorkflowStepTemplate:
 @dataclass(frozen=True)
 class WorkflowProfile:
     before_all: tuple[WorkflowStepTemplate, ...] = ()
+    note_item: tuple[WorkflowStepTemplate, ...] = ()
     per_item: tuple[WorkflowStepTemplate, ...] = ()
     after_all: tuple[WorkflowStepTemplate, ...] = ()
 
@@ -70,6 +71,11 @@ class WorkflowProfile:
             before_all=tuple(
                 WorkflowStepTemplate.from_dict(step)
                 for step in raw.get("before_all", [])
+                if isinstance(step, dict)
+            ),
+            note_item=tuple(
+                WorkflowStepTemplate.from_dict(step)
+                for step in raw.get("note_item", [])
                 if isinstance(step, dict)
             ),
             per_item=tuple(
@@ -87,6 +93,7 @@ class WorkflowProfile:
     def to_dict(self) -> dict[str, Any]:
         return {
             "before_all": [step.to_dict() for step in self.before_all],
+            "note_item": [step.to_dict() for step in self.note_item],
             "per_item": [step.to_dict() for step in self.per_item],
             "after_all": [step.to_dict() for step in self.after_all],
         }
@@ -94,6 +101,11 @@ class WorkflowProfile:
 
 def default_workflow_profile() -> WorkflowProfile:
     return WorkflowProfile(
+        note_item=(
+            WorkflowStepTemplate(kind="key", key="F9", delay_after_ms=250),
+            WorkflowStepTemplate(kind="text", text="{note}", delay_after_ms=90),
+            WorkflowStepTemplate(kind="key", key="ENTER", delay_after_ms=250),
+        ),
         per_item=(
             WorkflowStepTemplate(kind="key", key="F6", delay_after_ms=250),
             WorkflowStepTemplate(kind="text", text="{code}", delay_after_ms=90),
@@ -114,7 +126,10 @@ class ProducerConfig:
     openai_base_url: str = "https://api.openai.com/v1"
     openai_api_key: str = ""
     transcription_model: str = "gpt-4o-transcribe"
+    agent_model: str = "gpt-5.4"
+    agent_reasoning_effort: str = "medium"
     request_timeout_s: float = 20.0
+    draft_storage_dir: str = "runtime/drafts"
     firebase_credentials_path: str = ""
     firebase_database_url: str = ""
     firebase_commands_path_template: str = "/bridges/{bridge_id}/commands"
@@ -134,7 +149,10 @@ class ProducerConfig:
             openai_base_url=str(raw.get("openai_base_url", "https://api.openai.com/v1")).strip(),
             openai_api_key=str(raw.get("openai_api_key", "")).strip(),
             transcription_model=str(raw.get("transcription_model", "gpt-4o-transcribe")).strip() or "gpt-4o-transcribe",
+            agent_model=str(raw.get("agent_model", "gpt-5.4")).strip() or "gpt-5.4",
+            agent_reasoning_effort=str(raw.get("agent_reasoning_effort", "medium")).strip().lower() or "medium",
             request_timeout_s=max(float(raw.get("request_timeout_s", 20.0) or 20.0), 1.0),
+            draft_storage_dir=str(raw.get("draft_storage_dir", "runtime/drafts")).strip() or "runtime/drafts",
             firebase_credentials_path=str(raw.get("firebase_credentials_path", "")).strip(),
             firebase_database_url=str(raw.get("firebase_database_url", "")).strip(),
             firebase_commands_path_template=_normalize_db_path_template(
@@ -162,6 +180,13 @@ class ProducerConfig:
                 if not Path(credentials_path).is_absolute()
                 else credentials_path
             )
+        draft_storage_dir = str(payload["draft_storage_dir"]).strip()
+        if draft_storage_dir:
+            payload["draft_storage_dir"] = (
+                str((base_dir / draft_storage_dir).resolve())
+                if not Path(draft_storage_dir).is_absolute()
+                else draft_storage_dir
+            )
         return ProducerConfig.from_dict(payload)
 
     def save(self, path: Path) -> None:
@@ -181,6 +206,8 @@ class ProducerConfig:
             errors.append("openai_base_url is required")
         if self.request_timeout_s <= 0:
             errors.append("request_timeout_s must be positive")
+        if not self.draft_storage_dir:
+            errors.append("draft_storage_dir is required")
         if not self.firebase_commands_path_template:
             errors.append("firebase_commands_path_template is required")
         if not self.firebase_state_path_template:

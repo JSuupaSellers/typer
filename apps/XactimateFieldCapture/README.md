@@ -4,29 +4,36 @@ This is the thin iPhone/iPad companion app for your backend workflow.
 
 It is intentionally small:
 
-1. Capture room notes with audio.
-2. Select supporting photos.
-3. Upload that media to your backend.
-4. Review the planned CAT/SEL items returned by the producer service.
-5. Publish only after you approve the plan.
+1. Open a persistent claim draft by job ID.
+2. Add room notes through text or recorded voice turns.
+3. Let the backend draft agent evolve the claim room by room.
+4. Review grouped sections like `Ceiling`, `Walls`, and `Floors`.
+5. Accept or reject items before plan and publish.
 
 ## Backend requirements
 
 The app expects the producer API to be running with these endpoints:
 
-- `POST /capture/intake`
-- `POST /plan`
-- `POST /publish`
+- `POST /drafts/open`
+- `GET /drafts/{job_id}`
+- `POST /drafts/{job_id}/chat`
+- `POST /drafts/{job_id}/voice-turn`
+- `POST /drafts/{job_id}/items/{item_id}/status`
+- `POST /drafts/{job_id}/accept-all`
+- `POST /drafts/{job_id}/plan`
+- `POST /drafts/{job_id}/publish`
 
 Point the app at the same backend URL you use for the producer service.
 
-To transcribe recorded room notes on the backend, configure the producer with:
+To run the room draft workflow on the backend, configure the producer with:
 
 - `openai_api_key`
 - `openai_base_url`
 - `transcription_model`
+- `agent_model`
+- `draft_storage_dir`
 
-The current flow uses backend transcription for audio and sends selected photos along with the draft request so the same backend can expand into photo analysis later.
+The current app is chat-first. Voice turns are recorded locally, transcribed on the backend, and then passed into the same draft agent that handles typed messages.
 
 ## Generate the Xcode project
 

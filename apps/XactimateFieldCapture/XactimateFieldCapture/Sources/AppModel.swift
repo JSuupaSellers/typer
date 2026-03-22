@@ -11,21 +11,16 @@ final class FieldCaptureAppModel: ObservableObject {
 
     @Published var jobID: String
     @Published var bridgeID: String
-    @Published var scopeItemID: String
-    @Published var room: String
-    @Published var surface: String
-    @Published var damageType: String
-    @Published var keywords: String
-    @Published var quantity: String
-    @Published var descriptionText: String
-    @Published var transcript: String = ""
-    @Published var selectedPhotos: [PickedPhoto] = []
+    @Published var messageDraft: String = ""
     @Published var audioFileURL: URL?
     @Published var busyMessage: String = ""
     @Published var errorMessage: String?
+    @Published var transcript: String = ""
+    @Published var draft: DraftPayload?
+    @Published var groupedSections: [DraftSectionPayload] = []
     @Published var planResponse: PlanResponse?
     @Published var publishResponse: PublishResponse?
-    @Published var captureDraft: CaptureDraftResponse?
+    @Published var selectedRoom: String = "All Rooms"
 
     private let client = BackendClient()
     private let recorder = FieldAudioRecorder()
@@ -35,30 +30,165 @@ final class FieldCaptureAppModel: ObservableObject {
         backendAPIKey = UserDefaults.standard.string(forKey: Keys.backendAPIKey) ?? ""
         jobID = "claim-\(Int(Date().timeIntervalSince1970))"
         bridgeID = "default"
-        scopeItemID = "scope-1"
-        room = ""
-        surface = ""
-        damageType = ""
-        keywords = ""
-        quantity = ""
-        descriptionText = ""
     }
 
     var isRecording: Bool {
         recorder.isRecording
     }
 
-    var canPrepareDraft: Bool {
-        !backendBaseURL.trimmed.isEmpty
+    var canOpenDraft: Bool {
+        !backendBaseURL.trimmed.isEmpty && !jobID.trimmed.isEmpty
+    }
+
+    var canSendText: Bool {
+        draft != nil && !messageDraft.trimmed.isEmpty
+    }
+
+    var canSendVoice: Bool {
+        draft != nil && audioFileURL != nil
     }
 
     var canPlan: Bool {
-        !backendBaseURL.trimmed.isEmpty && !currentJob().items.first!.description.trimmed.isEmpty
+        draft?.items.contains(where: { $0.status == "accepted" }) == true
     }
 
     var canPublish: Bool {
         guard let planResponse else { return false }
         return planResponse.needsReviewCount == 0 && planResponse.unresolvedCount == 0 && planResponse.approvedCount > 0
+    }
+
+    var rooms: [String] {
+        let draftRooms = draft?.roomOrder ?? []
+        let groupedRooms = groupedSections.map(\.room)
+        let merged = Array(Set(draftRooms + groupedRooms)).sorted {
+            let leftIndex = draftRooms.firstIndex(of: $0) ?? Int.max
+            let rightIndex = draftRooms.firstIndex(of: $1) ?? Int.max
+            if leftIndex == rightIndex {
+                return $0 < $1
+            }
+            return leftIndex < rightIndex
+        }
+        return ["All Rooms"] + merged
+    }
+
+    var filteredSections: [DraftSectionPayload] {
+        guard selectedRoom != "All Rooms" else { return groupedSections }
+        return groupedSections.filter { $0.room == selectedRoom }
+    }
+
+    func openDraft() async {
+        await runBusy("Opening claim draft...") { [self] in
+            let response = try await self.client.openDraft(
+                jobID: self.jobID.trimmed,
+                bridgeID: self.bridgeID.trimmed.isEmpty ? "default" : self.bridgeID.trimmed,
+                configuration: self.backendConfiguration
+            )
+            self.applyDraftResponse(response)
+            self.messageDraft = ""
+            self.transcript = ""
+            self.planResponse = nil
+            self.publishResponse = nil
+        }
+    }
+
+    func refreshDraft() async {
+        await runBusy("Refreshing claim draft...") { [self] in
+            let response = try await self.client.fetchDraft(
+                jobID: self.jobID.trimmed,
+                configuration: self.backendConfiguration
+            )
+            self.applyDraftResponse(response)
+        }
+    }
+
+    func sendTextTurn() async {
+        let outgoing = messageDraft.trimmed
+        guard !outgoing.isEmpty else { return }
+        await runBusy("Sending note to the claim agent...") { [self] in
+            let response = try await self.client.sendChatTurn(
+                jobID: self.jobID.trimmed,
+                bridgeID: self.bridgeID.trimmed.isEmpty ? "default" : self.bridgeID.trimmed,
+                text: outgoing,
+                configuration: self.backendConfiguration
+            )
+            self.applyTurnResponse(response)
+            self.messageDraft = ""
+            self.audioFileURL = nil
+            self.planResponse = nil
+            self.publishResponse = nil
+        }
+    }
+
+    func sendVoiceTurn() async {
+        guard let audioFileURL else { return }
+        let draftText = messageDraft.trimmed
+        await runBusy("Transcribing and applying voice turn...") { [self] in
+            let response = try await self.client.sendVoiceTurn(
+                jobID: self.jobID.trimmed,
+                bridgeID: self.bridgeID.trimmed.isEmpty ? "default" : self.bridgeID.trimmed,
+                text: draftText,
+                audioFileURL: audioFileURL,
+                configuration: self.backendConfiguration
+            )
+            self.applyTurnResponse(response)
+            self.messageDraft = ""
+            self.audioFileURL = nil
+            self.planResponse = nil
+            self.publishResponse = nil
+        }
+    }
+
+    func setItemStatus(_ itemID: String, status: String) async {
+        await runBusy("Updating line item status...") { [self] in
+            let response = try await self.client.setDraftItemStatus(
+                jobID: self.jobID.trimmed,
+                itemID: itemID,
+                status: status,
+                configuration: self.backendConfiguration
+            )
+            self.applyDraftResponse(response)
+            self.planResponse = nil
+            self.publishResponse = nil
+        }
+    }
+
+    func acceptAll() async {
+        await runBusy("Accepting drafted items...") { [self] in
+            let response = try await self.client.acceptAll(
+                jobID: self.jobID.trimmed,
+                configuration: self.backendConfiguration
+            )
+            self.applyDraftResponse(response)
+            self.planResponse = nil
+            self.publishResponse = nil
+        }
+    }
+
+    func planDraft() async {
+        await runBusy("Planning room draft for the Pi...") { [self] in
+            let response = try await self.client.planDraft(
+                jobID: self.jobID.trimmed,
+                configuration: self.backendConfiguration
+            )
+            self.draft = response.draft
+            self.groupedSections = response.groupedSections
+            self.planResponse = response.plan
+            self.publishResponse = nil
+            self.syncSelectedRoom()
+        }
+    }
+
+    func publishDraft() async {
+        await runBusy("Publishing approved rooms to the bridge...") { [self] in
+            let response = try await self.client.publishDraft(
+                jobID: self.jobID.trimmed,
+                configuration: self.backendConfiguration
+            )
+            self.draft = response.draft
+            self.groupedSections = response.groupedSections
+            self.publishResponse = response.publish
+            self.syncSelectedRoom()
+        }
     }
 
     func toggleRecording() async {
@@ -73,69 +203,23 @@ final class FieldCaptureAppModel: ObservableObject {
         }
     }
 
-    func setSelectedPhotos(_ photos: [PickedPhoto]) {
-        let loaded = photos
-        selectedPhotos = loaded
+    private func applyDraftResponse(_ response: OpenDraftResponse) {
+        draft = response.draft
+        groupedSections = response.groupedSections
+        syncSelectedRoom()
     }
 
-    func prepareDraft() async {
-        await runBusy("Uploading field note draft...") { [self] in
-            let response = try await self.client.captureDraft(
-                request: CaptureDraftRequest(
-                    jobId: self.jobID,
-                    bridgeId: self.bridgeID,
-                    itemId: self.scopeItemID,
-                    room: self.room,
-                    surface: self.surface,
-                    damageType: self.damageType,
-                    keywords: self.keywords,
-                    quantity: self.quantity,
-                    description: self.descriptionText
-                ),
-                audioFileURL: self.audioFileURL,
-                photos: self.selectedPhotos,
-                configuration: self.backendConfiguration
-            )
+    private func applyTurnResponse(_ response: DraftTurnResponse) {
+        draft = response.draft
+        groupedSections = response.groupedSections
+        transcript = response.transcript
+        syncSelectedRoom()
+    }
 
-            self.captureDraft = response
-            self.transcript = response.transcript
-            if let firstItem = response.job.items.first {
-                self.descriptionText = firstItem.description
-            }
-            self.planResponse = nil
-            self.publishResponse = nil
+    private func syncSelectedRoom() {
+        if !rooms.contains(selectedRoom) {
+            selectedRoom = "All Rooms"
         }
-    }
-
-    func planEstimate() async {
-        await runBusy("Planning estimate...") { [self] in
-            self.planResponse = try await self.client.plan(job: self.currentJob(), configuration: self.backendConfiguration)
-            self.publishResponse = nil
-        }
-    }
-
-    func publishEstimate() async {
-        await runBusy("Publishing to bridge...") { [self] in
-            self.publishResponse = try await self.client.publish(job: self.currentJob(), configuration: self.backendConfiguration)
-        }
-    }
-
-    func currentJob() -> EstimateJobPayload {
-        EstimateJobPayload(
-            jobId: jobID.trimmed.isEmpty ? "job" : jobID.trimmed,
-            bridgeId: bridgeID.trimmed.isEmpty ? "default" : bridgeID.trimmed,
-            items: [
-                EstimateScopeItemPayload(
-                    itemId: scopeItemID.trimmed.isEmpty ? "scope-1" : scopeItemID.trimmed,
-                    description: descriptionText.trimmed,
-                    room: room.trimmed,
-                    surface: surface.trimmed,
-                    damageType: damageType.trimmed,
-                    keywords: keywords.trimmed,
-                    quantity: quantity.trimmed
-                )
-            ]
-        )
     }
 
     private var backendConfiguration: BackendConfiguration {

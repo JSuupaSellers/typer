@@ -8,7 +8,9 @@ import uvicorn
 
 from .api import create_app
 from .config import ProducerConfig
+from .drafts import DraftCoordinator, DraftStore
 from .models import EstimateJob
+from .openai_agent import OpenAIDraftAgent
 from .publisher import FirebaseCommandPublisher
 from .runtime_client import RuntimeCatalogClient
 from .service import ProducerReviewRequiredError, ProducerService
@@ -65,7 +67,19 @@ def main(argv: list[str] | None = None) -> int:
                     timeout_s=config.request_timeout_s,
                 )
             ) if config.openai_api_key.strip() else None
-            app = create_app(config, service, transcription_service=transcription_service)
+            draft_agent = OpenAIDraftAgent(config, runtime_client) if config.openai_api_key.strip() else None
+            draft_coordinator = DraftCoordinator(
+                DraftStore(config.draft_storage_dir),
+                service,
+                transcription_service=transcription_service,
+                agent=draft_agent,
+            )
+            app = create_app(
+                config,
+                service,
+                transcription_service=transcription_service,
+                draft_coordinator=draft_coordinator,
+            )
             uvicorn.run(app, host=args.host, port=args.port)
         return 0
 

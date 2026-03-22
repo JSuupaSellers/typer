@@ -105,14 +105,16 @@ Fill in:
 
 - `runtime_api_base_url`
 - `runtime_api_key` if your runtime search API requires one
-- `openai_api_key` if you want the producer to transcribe uploaded field audio
+- `openai_api_key` if you want the producer to run the chat draft agent and transcribe uploaded field audio
 - `transcription_model` if you want to override the default `gpt-4o-transcribe`
+- `agent_model` if you want a different OpenAI orchestrator model than the default `gpt-5.4`
+- `draft_storage_dir` for persisted room-by-room claim drafts
 - `firebase_credentials_path`
 - `firebase_database_url`
 - `firebase_commands_path_template`
 - `firebase_state_path_template`
 
-The workflow profile is intentionally data-driven so you can tune the exact `F6`, `TAB`, `ENTER`, and delay choreography without changing the producer code.
+The workflow profile is intentionally data-driven so you can tune the exact `F9`, `F6`, `TAB`, `ENTER`, and delay choreography without changing the producer code.
 
 ### Estimate job payload
 
@@ -189,11 +191,29 @@ Endpoints:
 
 - `GET /health`
 - `POST /capture/intake`
+- `POST /drafts/open`
+- `GET /drafts/{job_id}`
+- `POST /drafts/{job_id}/chat`
+- `POST /drafts/{job_id}/voice-turn`
+- `POST /drafts/{job_id}/items/{item_id}/status`
+- `POST /drafts/{job_id}/accept-all`
+- `POST /drafts/{job_id}/plan`
+- `POST /drafts/{job_id}/publish`
 - `POST /plan`
 - `POST /compile`
 - `POST /publish`
 
-`POST /capture/intake` is the bridge from a mobile capture app into the producer. It accepts multipart form data with:
+`POST /drafts/*` is the new room-by-room claim workflow for the mobile app:
+
+- open a persistent draft job
+- send text turns or voice turns
+- let the backend orchestrator search the curated catalog
+- review accepted vs rejected line items grouped by room and section
+- plan or publish the accepted draft to the Pi pipeline
+
+When the draft is converted into an execution job, the producer automatically inserts section note rows ahead of each room section and compiles them through the `note_item` profile. That is where `Ceiling`, `Walls`, `Floors`, and similar separators become `F9` note entries for Xactimate.
+
+`POST /capture/intake` still exists as a lower-level helper and accepts multipart form data with:
 
 - estimate metadata like `job_id`, `bridge_id`, `room`, `surface`, `damage_type`, `keywords`, and `quantity`
 - optional `description` text
@@ -226,12 +246,12 @@ The thin capture app lives under [apps/XactimateFieldCapture/README.md](/Users/j
 
 Use it when you want a field-friendly front end for:
 
-- audio capture
-- photo attachment
-- backend draft preparation
-- plan review before publish
+- room-by-room chat turns
+- backend voice transcription
+- grouped review by room and section
+- accept/reject control before plan and publish
 
-The app is intentionally light. Your backend still holds the OpenAI key, runs the producer API, and decides when a plan is safe to publish.
+The app is intentionally light. Your backend still holds the OpenAI key, runs the draft agent and producer API, and decides when a plan is safe to publish.
 
 ## OpenAI MCP Server
 

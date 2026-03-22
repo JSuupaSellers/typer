@@ -14,57 +14,69 @@ enum BackendClientError: LocalizedError {
     }
 }
 
-struct CaptureDraftRequest {
-    var jobId: String
-    var bridgeId: String
-    var itemId: String
-    var room: String
-    var surface: String
-    var damageType: String
-    var keywords: String
-    var quantity: String
-    var description: String
-}
-
 struct BackendClient {
-    func captureDraft(
-        request draft: CaptureDraftRequest,
-        audioFileURL: URL?,
-        photos: [PickedPhoto],
+    func openDraft(
+        jobID: String,
+        bridgeID: String,
         configuration: BackendConfiguration
-    ) async throws -> CaptureDraftResponse {
-        guard let endpoint = URL(string: configuration.baseURL.trimmed)?.appending(path: "capture/intake") else {
+    ) async throws -> OpenDraftResponse {
+        try await postJSON(
+            path: "drafts/open",
+            payload: ["job_id": jobID, "bridge_id": bridgeID],
+            configuration: configuration,
+            as: OpenDraftResponse.self
+        )
+    }
+
+    func fetchDraft(
+        jobID: String,
+        configuration: BackendConfiguration
+    ) async throws -> OpenDraftResponse {
+        guard let endpoint = URL(string: configuration.baseURL.trimmed)?.appending(path: "drafts/\(jobID)") else {
+            throw BackendClientError.invalidBaseURL
+        }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        if !configuration.apiKey.trimmed.isEmpty {
+            request.setValue(configuration.apiKey.trimmed, forHTTPHeaderField: "X-API-Key")
+        }
+        return try await execute(request, as: OpenDraftResponse.self)
+    }
+
+    func sendChatTurn(
+        jobID: String,
+        bridgeID: String,
+        text: String,
+        configuration: BackendConfiguration
+    ) async throws -> DraftTurnResponse {
+        try await postJSON(
+            path: "drafts/\(jobID)/chat",
+            payload: ["bridge_id": bridgeID, "text": text],
+            configuration: configuration,
+            as: DraftTurnResponse.self
+        )
+    }
+
+    func sendVoiceTurn(
+        jobID: String,
+        bridgeID: String,
+        text: String,
+        audioFileURL: URL,
+        configuration: BackendConfiguration
+    ) async throws -> DraftTurnResponse {
+        guard let endpoint = URL(string: configuration.baseURL.trimmed)?.appending(path: "drafts/\(jobID)/voice-turn") else {
             throw BackendClientError.invalidBaseURL
         }
 
         var form = MultipartFormData()
-        form.addField(named: "job_id", value: draft.jobId)
-        form.addField(named: "bridge_id", value: draft.bridgeId)
-        form.addField(named: "item_id", value: draft.itemId)
-        form.addField(named: "room", value: draft.room)
-        form.addField(named: "surface", value: draft.surface)
-        form.addField(named: "damage_type", value: draft.damageType)
-        form.addField(named: "keywords", value: draft.keywords)
-        form.addField(named: "quantity", value: draft.quantity)
-        form.addField(named: "description", value: draft.description)
-
-        if let audioFileURL {
-            try form.addFile(
-                named: "audio",
-                filename: audioFileURL.lastPathComponent,
-                mimeType: mimeType(forAudioFileAt: audioFileURL),
-                fileURL: audioFileURL
-            )
-        }
-
-        for photo in photos {
-            form.addFileData(
-                named: "photos",
-                filename: photo.filename,
-                mimeType: photo.mimeType,
-                data: photo.data
-            )
-        }
+        form.addField(named: "bridge_id", value: bridgeID)
+        form.addField(named: "text", value: text)
+        try form.addFile(
+            named: "audio",
+            filename: audioFileURL.lastPathComponent,
+            mimeType: mimeType(forAudioFileAt: audioFileURL),
+            fileURL: audioFileURL
+        )
 
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
@@ -73,22 +85,57 @@ struct BackendClient {
             request.setValue(configuration.apiKey.trimmed, forHTTPHeaderField: "X-API-Key")
         }
         request.httpBody = form.bodyData
-
-        return try await execute(request, as: CaptureDraftResponse.self)
+        return try await execute(request, as: DraftTurnResponse.self)
     }
 
-    func plan(
-        job: EstimateJobPayload,
+    func setDraftItemStatus(
+        jobID: String,
+        itemID: String,
+        status: String,
         configuration: BackendConfiguration
-    ) async throws -> PlanResponse {
-        try await postJSON(path: "plan", payload: job, configuration: configuration, as: PlanResponse.self)
+    ) async throws -> OpenDraftResponse {
+        try await postJSON(
+            path: "drafts/\(jobID)/items/\(itemID)/status",
+            payload: ["status": status],
+            configuration: configuration,
+            as: OpenDraftResponse.self
+        )
     }
 
-    func publish(
-        job: EstimateJobPayload,
+    func acceptAll(
+        jobID: String,
         configuration: BackendConfiguration
-    ) async throws -> PublishResponse {
-        try await postJSON(path: "publish", payload: job, configuration: configuration, as: PublishResponse.self)
+    ) async throws -> OpenDraftResponse {
+        try await postJSON(
+            path: "drafts/\(jobID)/accept-all",
+            payload: [:] as [String: String],
+            configuration: configuration,
+            as: OpenDraftResponse.self
+        )
+    }
+
+    func planDraft(
+        jobID: String,
+        configuration: BackendConfiguration
+    ) async throws -> DraftPlanResponse {
+        try await postJSON(
+            path: "drafts/\(jobID)/plan",
+            payload: [:] as [String: String],
+            configuration: configuration,
+            as: DraftPlanResponse.self
+        )
+    }
+
+    func publishDraft(
+        jobID: String,
+        configuration: BackendConfiguration
+    ) async throws -> DraftPublishResponse {
+        try await postJSON(
+            path: "drafts/\(jobID)/publish",
+            payload: [:] as [String: String],
+            configuration: configuration,
+            as: DraftPublishResponse.self
+        )
     }
 
     private func postJSON<T: Encodable, U: Decodable>(

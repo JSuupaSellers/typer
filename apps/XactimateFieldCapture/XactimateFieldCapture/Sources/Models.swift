@@ -1,73 +1,108 @@
 import Foundation
-import UIKit
 
 struct BackendConfiguration {
     var baseURL: String
     var apiKey: String
 }
 
-struct PickedPhoto: Identifiable, Equatable {
-    let id = UUID()
-    let filename: String
-    let mimeType: String
-    let data: Data
+struct DraftMessagePayload: Codable, Identifiable, Equatable {
+    let id: String
+    let role: String
+    let text: String
+    let createdAt: String
 
-    var image: UIImage? {
-        UIImage(data: data)
+    enum CodingKeys: String, CodingKey {
+        case id
+        case role
+        case text
+        case createdAt = "created_at"
     }
 }
 
-struct EstimateScopeItemPayload: Codable, Identifiable, Equatable {
-    let itemId: String
-    let description: String
+struct DraftLineItemPayload: Codable, Identifiable, Equatable {
+    let id: String
     let room: String
+    let section: String
+    let approvedCode: String
+    let description: String
+    let quantity: String
     let surface: String
     let damageType: String
     let keywords: String
-    let quantity: String
-
-    var id: String { itemId }
+    let status: String
+    let source: String
+    let rationale: String
 
     enum CodingKeys: String, CodingKey {
-        case itemId = "item_id"
-        case description
+        case id
         case room
+        case section
+        case approvedCode = "approved_code"
+        case description
+        case quantity
         case surface
         case damageType = "damage_type"
         case keywords
-        case quantity
+        case status
+        case source
+        case rationale
     }
 }
 
-struct EstimateJobPayload: Codable, Equatable {
+struct DraftPayload: Codable, Equatable {
     let jobId: String
     let bridgeId: String
-    let items: [EstimateScopeItemPayload]
+    let roomOrder: [String]
+    let messages: [DraftMessagePayload]
+    let items: [DraftLineItemPayload]
+    let updatedAt: String
 
     enum CodingKeys: String, CodingKey {
         case jobId = "job_id"
         case bridgeId = "bridge_id"
+        case roomOrder = "room_order"
+        case messages
         case items
+        case updatedAt = "updated_at"
     }
 }
 
-struct CaptureDraftResponse: Decodable, Equatable {
+struct DraftSectionPayload: Codable, Identifiable, Equatable {
+    let room: String
+    let section: String
+    let note: String
+    let items: [DraftLineItemPayload]
+
+    var id: String { "\(room)|\(section)" }
+}
+
+struct OpenDraftResponse: Decodable, Equatable {
     let status: String
-    let message: String
-    let transcript: String
-    let audioFilename: String
-    let photoCount: Int
-    let photoFilenames: [String]
-    let job: EstimateJobPayload
+    let draft: DraftPayload
+    let groupedSections: [DraftSectionPayload]
 
     enum CodingKeys: String, CodingKey {
         case status
-        case message
+        case draft
+        case groupedSections = "grouped_sections"
+    }
+}
+
+struct DraftTurnResponse: Decodable, Equatable {
+    let status: String
+    let draft: DraftPayload
+    let groupedSections: [DraftSectionPayload]
+    let assistantReply: String
+    let transcript: String
+    let warnings: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case draft
+        case groupedSections = "grouped_sections"
+        case assistantReply = "assistant_reply"
         case transcript
-        case audioFilename = "audio_filename"
-        case photoCount = "photo_count"
-        case photoFilenames = "photo_filenames"
-        case job
+        case warnings
     }
 }
 
@@ -82,6 +117,36 @@ struct PlanResponse: Decodable, Equatable {
         case needsReviewCount = "needs_review_count"
         case unresolvedCount = "unresolved_count"
         case items
+    }
+}
+
+struct EstimateScopeItemPayload: Codable, Identifiable, Equatable {
+    let itemId: String
+    let description: String
+    let itemType: String
+    let room: String
+    let section: String
+    let surface: String
+    let damageType: String
+    let keywords: String
+    let quantity: String
+    let note: String
+    let approvedCode: String
+
+    var id: String { itemId }
+
+    enum CodingKeys: String, CodingKey {
+        case itemId = "item_id"
+        case description
+        case itemType = "item_type"
+        case room
+        case section
+        case surface
+        case damageType = "damage_type"
+        case keywords
+        case quantity
+        case note
+        case approvedCode = "approved_code"
     }
 }
 
@@ -134,6 +199,34 @@ struct PublishResponse: Decodable, Equatable {
         case startingSeq = "starting_seq"
         case endingSeq = "ending_seq"
         case approvedCodes = "approved_codes"
+    }
+}
+
+struct DraftPlanResponse: Decodable, Equatable {
+    let status: String
+    let draft: DraftPayload
+    let groupedSections: [DraftSectionPayload]
+    let plan: PlanResponse
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case draft
+        case groupedSections = "grouped_sections"
+        case plan
+    }
+}
+
+struct DraftPublishResponse: Decodable, Equatable {
+    let status: String
+    let draft: DraftPayload
+    let groupedSections: [DraftSectionPayload]
+    let publish: PublishResponse
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case draft
+        case groupedSections = "grouped_sections"
+        case publish
     }
 }
 

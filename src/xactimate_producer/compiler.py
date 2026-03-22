@@ -30,7 +30,8 @@ class WorkflowCompiler:
             if item.approved_candidate is None:
                 continue
             context = self._item_context(plan, item, index)
-            for step in self.profile.per_item:
+            steps = self.profile.note_item if item.source.item_type == "note" else self.profile.per_item
+            for step in steps:
                 command = self._render_step(step, seq, context)
                 if command is None:
                     continue
@@ -58,6 +59,7 @@ class WorkflowCompiler:
             "line_description": approved.item.description,
             "line_index": index,
             "scope_description": source.description,
+            "item_type": source.item_type,
         }
         return _SafeFormatDict(
             {
@@ -65,6 +67,7 @@ class WorkflowCompiler:
                 "bridge_id": plan.job.bridge_id,
                 "scope_item_id": source.item_id,
                 "line_index": str(index),
+                "item_type": source.item_type,
                 "code": approved.item.code,
                 "category": approved.item.category,
                 "selector": approved.item.selector,
@@ -73,9 +76,11 @@ class WorkflowCompiler:
                 "details": approved.item.details,
                 "quantity": source.quantity,
                 "room": source.room,
+                "section": source.section,
                 "surface": source.surface,
                 "damage_type": source.damage_type,
                 "keywords": source.keywords,
+                "note": source.note or source.description or source.section,
                 "__metadata__": metadata,
             }
         )
@@ -112,4 +117,3 @@ class WorkflowCompiler:
             repeat=step.repeat,
             metadata=metadata,
         )
-

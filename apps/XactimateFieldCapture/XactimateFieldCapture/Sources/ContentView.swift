@@ -1,31 +1,32 @@
-import PhotosUI
 import SwiftUI
 
 struct ContentView: View {
     @StateObject private var model = FieldCaptureAppModel()
-    @State private var photoPickerItems: [PhotosPickerItem] = []
     @State private var showingPublishConfirm = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 18) {
                     hero
                     connectionCard
-                    scopeCard
-                    captureCard
-                    if !model.transcript.isEmpty || model.captureDraft != nil {
-                        draftCard
+                    if model.draft != nil {
+                        roomsCard
+                        chatCard
+                        sectionsCard
+                        workflowCard
+                    } else {
+                        emptyDraftCard
                     }
-                    if let plan = model.planResponse {
-                        planCard(plan: plan)
-                    }
-                    publishCard
                 }
-                .padding(20)
+                .padding(16)
+                .padding(.bottom, 120)
             }
             .background(background)
-            .navigationTitle("Field Capture")
+            .navigationTitle("Claim Draft")
+            .safeAreaInset(edge: .bottom) {
+                composerBar
+            }
             .alert("Something went wrong", isPresented: Binding(
                 get: { model.errorMessage != nil },
                 set: { isPresented in
@@ -38,35 +39,31 @@ struct ContentView: View {
             } message: {
                 Text(model.errorMessage ?? "")
             }
-            .alert("Publish to the bridge?", isPresented: $showingPublishConfirm) {
+            .alert("Publish this draft to the bridge?", isPresented: $showingPublishConfirm) {
                 Button("Cancel", role: .cancel) {}
                 Button("Publish") {
-                    Task { await model.publishEstimate() }
+                    Task { await model.publishDraft() }
                 }
             } message: {
-                Text("This will queue commands in Firebase for the Raspberry Pi bridge to execute.")
+                Text("This will queue the currently accepted room items for the Raspberry Pi bridge.")
             }
-            .overlay(alignment: .center) {
+            .overlay {
                 if !model.busyMessage.isEmpty {
                     ProgressView(model.busyMessage)
                         .padding(.horizontal, 22)
                         .padding(.vertical, 18)
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                        .shadow(radius: 18, y: 10)
+                        .shadow(radius: 16, y: 10)
                 }
-            }
-            .onChange(of: photoPickerItems) { _, newValue in
-                Task { await loadSelectedPhotos(from: newValue) }
             }
         }
     }
 
     private var hero: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Capture in the field, keep the intelligence on your backend.")
+            Text("Talk through the claim room by room.")
                 .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                .foregroundStyle(.primary)
-            Text("Record audio, attach photos, review the planned CAT/SEL items, then publish only when the plan looks right.")
+            Text("The backend keeps the claim draft, the agent fills line items by section, and you review the room stack before it ever touches the Pi.")
                 .font(.system(.body, design: .rounded))
                 .foregroundStyle(.secondary)
         }
@@ -76,7 +73,7 @@ struct ContentView: View {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [Color(red: 0.94, green: 0.98, blue: 0.95), Color(red: 0.88, green: 0.95, blue: 0.98)],
+                        colors: [Color(red: 0.96, green: 0.98, blue: 0.94), Color(red: 0.90, green: 0.94, blue: 0.99)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -85,7 +82,7 @@ struct ContentView: View {
     }
 
     private var connectionCard: some View {
-        card("Backend") {
+        card("Connection") {
             VStack(spacing: 12) {
                 TextField("Backend URL", text: $model.backendBaseURL)
                     .textInputAutocapitalization(.never)
@@ -95,13 +92,7 @@ struct ContentView: View {
                 SecureField("Producer API Key", text: $model.backendAPIKey)
                     .textInputAutocapitalization(.never)
                     .textFieldStyle(.roundedBorder)
-            }
-        }
-    }
 
-    private var scopeCard: some View {
-        card("Scope") {
-            VStack(spacing: 12) {
                 HStack(spacing: 12) {
                     TextField("Job ID", text: $model.jobID)
                         .textFieldStyle(.roundedBorder)
@@ -110,179 +101,176 @@ struct ContentView: View {
                 }
 
                 HStack(spacing: 12) {
-                    TextField("Scope Item ID", text: $model.scopeItemID)
-                        .textFieldStyle(.roundedBorder)
-                    TextField("Quantity", text: $model.quantity)
-                        .keyboardType(.decimalPad)
-                        .textFieldStyle(.roundedBorder)
-                }
+                    Button("Open Draft") {
+                        Task { await model.openDraft() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!model.canOpenDraft)
 
-                HStack(spacing: 12) {
-                    TextField("Room", text: $model.room)
-                        .textFieldStyle(.roundedBorder)
-                    TextField("Surface", text: $model.surface)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                TextField("Damage Type", text: $model.damageType)
-                    .textFieldStyle(.roundedBorder)
-
-                TextField("Keywords", text: $model.keywords)
-                    .textFieldStyle(.roundedBorder)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Narrative")
-                        .font(.subheadline.weight(.semibold))
-                    TextEditor(text: $model.descriptionText)
-                        .frame(minHeight: 120)
-                        .padding(8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color(.secondarySystemBackground))
-                        )
+                    if model.draft != nil {
+                        Button("Refresh") {
+                            Task { await model.refreshDraft() }
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 }
             }
         }
     }
 
-    private var captureCard: some View {
-        card("Capture") {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 12) {
-                    Button(model.isRecording ? "Stop Recording" : "Record Audio") {
-                        Task { await model.toggleRecording() }
-                    }
-                    .buttonStyle(.borderedProminent)
+    private var emptyDraftCard: some View {
+        card("Start Here") {
+            Text("Open a draft first, then use the composer below to talk through the claim room by room. Voice turns transcribe on the backend, text turns go straight to the draft agent.")
+                .foregroundStyle(.secondary)
+        }
+    }
 
-                    if let audioFileURL = model.audioFileURL {
-                        Text(audioFileURL.lastPathComponent)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("No audio clip yet")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+    private var roomsCard: some View {
+        card("Rooms") {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(model.rooms, id: \.self) { room in
+                        Button(room) {
+                            model.selectedRoom = room
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(model.selectedRoom == room ? Color.accentColor : Color(.secondarySystemBackground))
+                        )
+                        .foregroundStyle(model.selectedRoom == room ? Color.white : Color.primary)
                     }
                 }
+            }
+        }
+    }
 
-                PhotosPicker(selection: $photoPickerItems, maxSelectionCount: 12, matching: .images) {
-                    Label("Select Photos", systemImage: "photo.on.rectangle.angled")
-                        .frame(maxWidth: .infinity)
+    private var chatCard: some View {
+        card("Conversation") {
+            VStack(alignment: .leading, spacing: 12) {
+                if !model.transcript.isEmpty {
+                    Label(model.transcript, systemImage: "waveform")
+                        .font(.caption)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
-                .buttonStyle(.bordered)
 
-                if !model.selectedPhotos.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(model.selectedPhotos) { photo in
-                                VStack(alignment: .leading, spacing: 6) {
-                                    if let image = photo.image {
-                                        Image(uiImage: image)
-                                            .resizable()
-                                            .scaledToFill()
-                                            .frame(width: 88, height: 88)
-                                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                    }
-                                    Text(photo.filename)
-                                        .font(.caption2)
+                if let messages = model.draft?.messages, !messages.isEmpty {
+                    ForEach(messages) { message in
+                        HStack {
+                            if message.role == "assistant" {
+                                messageBubble(message, accent: Color(.secondarySystemBackground), foreground: .primary)
+                                Spacer(minLength: 30)
+                            } else {
+                                Spacer(minLength: 30)
+                                messageBubble(message, accent: Color.accentColor.opacity(0.95), foreground: .white)
+                            }
+                        }
+                    }
+                } else {
+                    Text("No turns yet. Start with something like: “Living room ceiling has a 2x2 patch and repaint the ceiling.”")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var sectionsCard: some View {
+        card("Room Stack") {
+            VStack(alignment: .leading, spacing: 16) {
+                if model.filteredSections.isEmpty {
+                    Text("Accepted and rejected line items will appear here grouped by room and section.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(model.filteredSections) { group in
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(alignment: .firstTextBaseline) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(group.room)
+                                        .font(.headline)
+                                    Text(group.note)
+                                        .font(.caption.weight(.semibold))
                                         .foregroundStyle(.secondary)
-                                        .lineLimit(1)
                                 }
+                                Spacer()
+                                Text("\(group.items.count) item\(group.items.count == 1 ? "" : "s")")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            ForEach(group.items) { item in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack(alignment: .top) {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("\(item.approvedCode) • \(item.description)")
+                                                .font(.subheadline.weight(.semibold))
+                                            Text(detailLine(for: item))
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        statusBadge(item.status)
+                                    }
+
+                                    if !item.rationale.trimmed.isEmpty {
+                                        Text(item.rationale)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    HStack(spacing: 10) {
+                                        Button("Accept") {
+                                            Task { await model.setItemStatus(item.id, status: "accepted") }
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        .tint(.green)
+                                        .controlSize(.small)
+
+                                        Button("Reject") {
+                                            Task { await model.setItemStatus(item.id, status: "rejected") }
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .tint(.secondary)
+                                        .controlSize(.small)
+                                    }
+                                }
+                                .padding(14)
+                                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                             }
                         }
                     }
                 }
-
-                HStack(spacing: 12) {
-                    Button("Prepare Draft") {
-                        Task { await model.prepareDraft() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!model.canPrepareDraft)
-
-                    Button("Plan Estimate") {
-                        Task { await model.planEstimate() }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(!model.canPlan)
-                }
             }
         }
     }
 
-    private var draftCard: some View {
-        card("Draft") {
-            VStack(alignment: .leading, spacing: 10) {
-                if let draft = model.captureDraft {
-                    Text("Uploaded \(draft.photoCount) photo\(draft.photoCount == 1 ? "" : "s")")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-
-                if !model.transcript.isEmpty {
-                    Text("Transcript")
-                        .font(.subheadline.weight(.semibold))
-                    Text(model.transcript)
-                        .font(.body)
-                }
-            }
-        }
-    }
-
-    private func planCard(plan: PlanResponse) -> some View {
-        card("Planned Items") {
+    private var workflowCard: some View {
+        card("Workflow") {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 12) {
-                    statPill(title: "Approved", value: "\(plan.approvedCount)", color: .green)
-                    statPill(title: "Review", value: "\(plan.needsReviewCount)", color: .orange)
-                    statPill(title: "Unresolved", value: "\(plan.unresolvedCount)", color: .red)
-                }
-
-                ForEach(plan.items) { item in
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(item.source.description.isEmpty ? "No description" : item.source.description)
-                                .font(.headline)
-                            Spacer()
-                            statusBadge(item.status)
-                        }
-
-                        if let approved = item.approvedCandidate {
-                            Text("\(approved.item.code) • \(approved.item.description)")
-                                .font(.subheadline.weight(.semibold))
-                            Text("Confidence: \(approved.confidence.capitalized)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else if let topCandidate = item.candidates.first {
-                            Text("Top suggestion: \(topCandidate.item.code) • \(topCandidate.item.description)")
-                                .font(.subheadline.weight(.semibold))
-                            Text("Confidence: \(topCandidate.confidence.capitalized)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        if !item.reviewReason.isEmpty {
-                            Text(item.reviewReason)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                    Button("Accept All") {
+                        Task { await model.acceptAll() }
                     }
-                    .padding(16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(Color(.secondarySystemBackground))
-                    )
-                }
-            }
-        }
-    }
+                    .buttonStyle(.bordered)
 
-    private var publishCard: some View {
-        card("Publish") {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Only publish after the plan is fully approved.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    Button("Plan for Pi") {
+                        Task { await model.planDraft() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!model.canPlan)
+                }
+
+                if let plan = model.planResponse {
+                    HStack(spacing: 12) {
+                        statPill(title: "Approved", value: "\(plan.approvedCount)", color: .green)
+                        statPill(title: "Review", value: "\(plan.needsReviewCount)", color: .orange)
+                        statPill(title: "Unresolved", value: "\(plan.unresolvedCount)", color: .red)
+                    }
+                }
 
                 Button("Publish to Bridge") {
                     showingPublishConfirm = true
@@ -301,6 +289,44 @@ struct ContentView: View {
         }
     }
 
+    private var composerBar: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let audioFileURL = model.audioFileURL {
+                Label(audioFileURL.lastPathComponent, systemImage: "waveform.circle.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(alignment: .bottom, spacing: 10) {
+                TextField("Add a room note or correction...", text: $model.messageDraft, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1 ... 4)
+
+                Button(model.isRecording ? "Stop" : "Rec") {
+                    Task { await model.toggleRecording() }
+                }
+                .buttonStyle(.bordered)
+                .tint(model.isRecording ? .red : .accentColor)
+
+                Button("Send") {
+                    Task { await model.sendTextTurn() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!model.canSendText)
+
+                Button("Voice") {
+                    Task { await model.sendVoiceTurn() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!model.canSendVoice)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 20)
+        .background(.ultraThinMaterial)
+    }
+
     private var background: some View {
         LinearGradient(
             colors: [Color(red: 0.98, green: 0.99, blue: 0.97), Color(red: 0.94, green: 0.96, blue: 0.99)],
@@ -316,62 +342,51 @@ struct ContentView: View {
                 .font(.system(.title3, design: .rounded, weight: .bold))
             content()
         }
-        .padding(20)
+        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(.ultraThinMaterial)
-        )
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
-    private func statPill(title: String, value: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-            Text(value)
-                .font(.headline)
+    private func messageBubble(_ message: DraftMessagePayload, accent: Color, foreground: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(message.text)
+                .font(.body)
+            Text(message.role.capitalized)
+                .font(.caption2.weight(.semibold))
+                .textCase(.uppercase)
+                .opacity(0.7)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(color.opacity(0.12), in: Capsule())
-        .foregroundStyle(color)
+        .foregroundStyle(foreground)
+        .padding(14)
+        .background(accent, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func statusBadge(_ status: String) -> some View {
-        let style: (text: String, color: Color) = switch status {
-        case "approved":
-            ("Approved", .green)
-        case "needs_review":
-            ("Needs Review", .orange)
-        default:
-            ("Unresolved", .red)
-        }
-
-        return Text(style.text)
-            .font(.caption.weight(.semibold))
+        Text(status.capitalized)
+            .font(.caption.weight(.bold))
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(style.color.opacity(0.12), in: Capsule())
-            .foregroundStyle(style.color)
+            .background(status == "accepted" ? Color.green.opacity(0.18) : Color.gray.opacity(0.18), in: Capsule(style: .continuous))
+            .foregroundStyle(status == "accepted" ? Color.green : Color.secondary)
     }
 
-    private func loadSelectedPhotos(from items: [PhotosPickerItem]) async {
-        var loaded: [PickedPhoto] = []
-        for (index, item) in items.enumerated() {
-            guard let data = try? await item.loadTransferable(type: Data.self), !data.isEmpty else {
-                continue
-            }
-            let type = item.supportedContentTypes.first
-            let ext = type?.preferredFilenameExtension ?? "jpg"
-            let mimeType = type?.preferredMIMEType ?? "image/jpeg"
-            loaded.append(
-                PickedPhoto(
-                    filename: "photo-\(index + 1).\(ext)",
-                    mimeType: mimeType,
-                    data: data
-                )
-            )
+    private func statPill(title: String, value: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value)
+                .font(.title3.weight(.bold))
+            Text(title)
+                .font(.caption.weight(.semibold))
         }
-        model.setSelectedPhotos(loaded)
+        .foregroundStyle(color)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func detailLine(for item: DraftLineItemPayload) -> String {
+        [item.surface, item.damageType, item.quantity.isEmpty ? "" : "Qty \(item.quantity)"]
+            .map(\.trimmed)
+            .filter { !$0.isEmpty }
+            .joined(separator: " • ")
     }
 }

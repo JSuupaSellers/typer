@@ -57,6 +57,33 @@ class ProducerService:
     def plan_job(self, job: EstimateJob) -> ExecutionPlan:
         items: list[PlannedEstimateItem] = []
         for source in job.items:
+            if source.item_type == "note":
+                note_text = source.note.strip() or source.description.strip() or source.section.strip() or "Note"
+                note_candidate = RecommendationCandidate(
+                    item=CatalogLineItem(
+                        code="NOTE",
+                        category="NOTE",
+                        selector="NOTE",
+                        description=note_text,
+                        unit="",
+                        details="Section note inserted ahead of room scope items.",
+                    ),
+                    score=100.0,
+                    confidence="high",
+                    matched_terms=(note_text,),
+                    reasons=("Draft section separator.",),
+                    highlights=(),
+                )
+                items.append(
+                    PlannedEstimateItem(
+                        source=source,
+                        candidates=(note_candidate,),
+                        approved_candidate=note_candidate,
+                        status="approved",
+                    )
+                )
+                continue
+
             if source.approved_code:
                 try:
                     approved_item = self._runtime_client.get_item(source.approved_code)
@@ -158,4 +185,3 @@ class ProducerService:
                 "The job still contains unresolved or review-required scope items.",
                 plan,
             )
-

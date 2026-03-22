@@ -166,11 +166,14 @@ class RecommendationCandidate:
 class EstimateScopeItem:
     item_id: str
     description: str
+    item_type: str = "line_item"
     room: str = ""
+    section: str = ""
     surface: str = ""
     damage_type: str = ""
     keywords: str = ""
     quantity: str = ""
+    note: str = ""
     approved_code: str = ""
     allow_auto_approve: bool = True
     min_confidence: str = "high"
@@ -178,14 +181,20 @@ class EstimateScopeItem:
     @classmethod
     def from_dict(cls, raw: dict[str, Any], index: int) -> "EstimateScopeItem":
         item_id = _first_present(raw, "item_id", "itemId", "id", default=f"item-{index}")
+        item_type = _first_present(raw, "item_type", "itemType", default="line_item").lower() or "line_item"
+        if item_type not in {"line_item", "note"}:
+            item_type = "line_item"
         return cls(
             item_id=item_id or f"item-{index}",
             description=_first_present(raw, "description"),
+            item_type=item_type,
             room=_first_present(raw, "room"),
+            section=_first_present(raw, "section"),
             surface=_first_present(raw, "surface"),
             damage_type=_first_present(raw, "damage_type", "damageType"),
             keywords=_first_present(raw, "keywords"),
             quantity=format_quantity(raw.get("quantity")),
+            note=_first_present(raw, "note"),
             approved_code=_first_present(raw, "approved_code", "approvedCode").upper(),
             allow_auto_approve=_as_bool(raw.get("allow_auto_approve", raw.get("allowAutoApprove", True)), True),
             min_confidence=normalize_confidence(_first_present(raw, "min_confidence", "minConfidence", default="high")),
@@ -195,11 +204,14 @@ class EstimateScopeItem:
         return {
             "item_id": self.item_id,
             "description": self.description,
+            "item_type": self.item_type,
             "room": self.room,
+            "section": self.section,
             "surface": self.surface,
             "damage_type": self.damage_type,
             "keywords": self.keywords,
             "quantity": self.quantity,
+            "note": self.note,
             "approved_code": self.approved_code,
             "allow_auto_approve": self.allow_auto_approve,
             "min_confidence": self.min_confidence,
@@ -430,4 +442,3 @@ class PublishResult:
             "state_path": self.state_path,
             "approved_codes": list(self.approved_codes),
         }
-

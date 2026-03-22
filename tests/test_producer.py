@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 
 from fastapi.testclient import TestClient
 
 from xactimate_producer.api import create_app
 from xactimate_producer.config import ProducerConfig
+from xactimate_producer.drafts import DraftCoordinator, DraftLineItem, DraftStore, EstimateDraft
 from xactimate_producer.models import (
     CatalogLineItem,
     EstimateJob,
@@ -139,10 +141,13 @@ class FakeTranscriptionService:
 
 class ProducerTests(unittest.TestCase):
     def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
         self.config = ProducerConfig.from_dict(
             {
                 "runtime_api_base_url": "http://runtime.test",
                 "producer_api_key": "producer-secret",
+                "draft_storage_dir": self.tempdir.name,
             }
         )
 
@@ -220,9 +225,62 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(publisher.published_job.commands[0].seq, 13)
         self.assertEqual(publisher.published_job.commands[-1].seq, 19)
 
+    def test_draft_to_job_inserts_section_note_items(self) -> None:
+        draft = EstimateDraft.create("claim-room-order", "default")
+        draft = draft.add_item(
+            DraftLineItem.create(
+                room="Kitchen",
+                section="Ceiling",
+                approved_code="DRY/PCH",
+                description="2x2 ceiling patch",
+                quantity="1",
+                surface="Ceiling",
+                damage_type="Patch",
+                keywords="2x2 patch",
+            )
+        )
+        draft = draft.add_item(
+            DraftLineItem.create(
+                room="Kitchen",
+                section="Walls",
+                approved_code="PNT/SP",
+                description="Paint walls",
+                quantity="120",
+                surface="Walls",
+                damage_type="Paint",
+                keywords="paint walls",
+            )
+        )
+
+        job = draft.to_estimate_job()
+        self.assertEqual([item.item_type for item in job.items], ["note", "line_item", "note", "line_item"])
+        self.assertEqual(job.items[0].note, "Ceiling")
+        self.assertEqual(job.items[1].approved_code, "DRY/PCH")
+        self.assertEqual(job.items[2].note, "Walls")
+        self.assertEqual(job.items[3].approved_code, "PNT/SP")
+
+        service = ProducerService(self.config, FakeRuntimeClient())
+        compiled = service.compile_job(job, starting_seq=5)
+        self.assertEqual(compiled.commands[0].key, "F9")
+        self.assertEqual(compiled.commands[1].text, "Ceiling")
+        self.assertEqual(compiled.commands[3].key, "F6")
+
     def test_api_endpoints(self) -> None:
         service = ProducerService(self.config, FakeRuntimeClient(), FakePublisher())
-        client = TestClient(create_app(self.config, service, transcription_service=FakeTranscriptionService()))
+        drafts = DraftCoordinator(
+            DraftStore(self.config.draft_storage_dir),
+            service,
+            transcription_service=FakeTranscriptionService(),
+            agent=None,
+        )
+        client = TestClient(
+            create_app(
+                self.config,
+                service,
+                transcription_service=FakeTranscriptionService(),
+                draft_coordinator=drafts,
+            )
+        )
 
         unauthorized = client.get("/health")
         self.assertEqual(unauthorized.status_code, 401)
@@ -276,6 +334,33 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(intake_payload["photo_count"], 2)
         self.assertEqual(intake_payload["job"]["job_id"], "claim-2048")
         self.assertIn("Transcript for note.m4a", intake_payload["job"]["items"][0]["description"])
+
+        opened = client.post(
+            "/drafts/open",
+            headers=headers,
+            json={"job_id": "claim-chat", "bridge_id": "default"},
+        )
+        self.assertEqual(opened.status_code, 200)
+        self.assertEqual(opened.json()["draft"]["job_id"], "claim-chat")
+
+        chat = client.post(
+            "/drafts/claim-chat/chat",
+            headers=headers,
+            json={"text": "Living room ceiling needs patch and paint", "bridge_id": "default"},
+        )
+        self.assertEqual(chat.status_code, 200)
+        chat_payload = chat.json()
+        self.assertEqual(chat_payload["draft"]["messages"][-1]["role"], "assistant")
+        self.assertEqual(chat_payload["grouped_sections"], [])
+
+        voice_turn = client.post(
+            "/drafts/claim-chat/voice-turn",
+            headers=headers,
+            data={"bridge_id": "default", "text": "Bedroom scope"},
+            files={"audio": ("bedroom.m4a", b"voice-bytes", "audio/mp4")},
+        )
+        self.assertEqual(voice_turn.status_code, 200)
+        self.assertIn("Transcript for bedroom.m4a", voice_turn.json()["transcript"])
 
 
 if __name__ == "__main__":
