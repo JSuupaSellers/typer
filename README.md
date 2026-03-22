@@ -192,6 +192,63 @@ Endpoints:
 
 This is the service your cloud agent should call once it has a transcript or other structured room description ready.
 
+## OpenAI MCP Server
+
+If you want this to plug into OpenAI tool calling cleanly, use the MCP server instead of calling the runtime and producer REST APIs directly.
+
+Start it like this:
+
+```bash
+xactimate-openai-mcp \
+  --runtime-db runtime/catalog.sqlite \
+  --producer-config producer.local.json \
+  --host 0.0.0.0 \
+  --port 8000
+```
+
+By default it serves Streamable HTTP at `/mcp` and SSE at `/sse`.
+
+Exposed tools:
+
+- `search_line_items`
+- `get_line_item`
+- `plan_estimate_job`
+- `compile_estimate_job`
+- `publish_estimate_job`
+
+The publish tool is intentionally guarded and requires `confirm_publish=true` before it will write anything to Firebase.
+
+Example OpenAI Responses API tool configuration:
+
+```python
+from openai import OpenAI
+
+client = OpenAI()
+
+response = client.responses.create(
+    model="gpt-5.4",
+    tools=[
+        {
+            "type": "mcp",
+            "server_label": "xactimate",
+            "server_url": "https://your-public-host.example.com/mcp",
+            "require_approval": "never",
+        }
+    ],
+    input="Plan an estimate for a 2x2 ceiling patch, compile it, and stop before publishing."
+)
+```
+
+Recommended tool flow for OpenAI:
+
+1. `search_line_items`
+2. `get_line_item` if the model needs more scenario detail
+3. `plan_estimate_job`
+4. `compile_estimate_job`
+5. `publish_estimate_job` only after explicit user approval
+
+This lets OpenAI use the curated catalog, deterministic compiler, and Firebase publisher as one remote tool surface.
+
 ## Command contract
 
 The producer should write immutable commands under the configured `firebase_commands_path`.
