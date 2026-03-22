@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 import httpx
 
-from .models import CatalogLineItem, EstimateScopeItem, RecommendationCandidate
+from .models import CatalogLineItem, EstimateScopeItem, RecommendationCandidate, confidence_rank
 
 
 class RuntimeClientError(RuntimeError):
@@ -36,19 +37,69 @@ class RuntimeCatalogClient:
         self.close()
 
     def recommend_for_item(self, scope_item: EstimateScopeItem, limit: int) -> list[RecommendationCandidate]:
-        payload = {
-            "query": scope_item.description,
-            "room": scope_item.room,
-            "surface": scope_item.surface,
-            "damage_type": scope_item.damage_type,
-            "keywords": scope_item.keywords,
-            "limit": limit,
-        }
+        payload = self._recommend_payload(scope_item, limit)
         response = self._request("POST", "/recommend", json=payload)
         body = response.json()
         if not isinstance(body, list):
             raise RuntimeClientError("Runtime API /recommend did not return a list.")
         return [RecommendationCandidate.from_api_payload(item) for item in body if isinstance(item, dict)]
+
+    def explore_strategies(
+        self,
+        scope_item: EstimateScopeItem,
+        strategies: list[dict[str, Any]],
+        default_limit: int,
+    ) -> dict[str, Any]:
+        strategy_results: list[dict[str, Any]] = []
+        best_by_code: dict[str, RecommendationCandidate] = {}
+        appearances: dict[str, int] = {}
+
+        for index, strategy in enumerate(strategies, start=1):
+            strategy_name = str(strategy.get("name", "")).strip() or f"strategy_{index}"
+            strategy_scope = EstimateScopeItem(
+                item_id=f"{scope_item.item_id}-strategy-{index}",
+                description=str(strategy.get("query", "")).strip() or scope_item.description,
+                room=str(strategy.get("room", "")).strip() or scope_item.room,
+                section=str(strategy.get("section", "")).strip() or scope_item.section,
+                surface=str(strategy.get("surface", "")).strip() or scope_item.surface,
+                damage_type=str(strategy.get("damage_type", "")).strip() or scope_item.damage_type,
+                keywords=str(strategy.get("keywords", "")).strip() or scope_item.keywords,
+            )
+            strategy_limit = max(int(strategy.get("limit", default_limit) or default_limit), 1)
+            candidates = self.recommend_for_item(strategy_scope, strategy_limit)
+
+            strategy_results.append(
+                {
+                    "name": strategy_name,
+                    "search_request": self._recommend_payload(strategy_scope, strategy_limit) | {"section": strategy_scope.section},
+                    "candidates": [candidate.to_dict() for candidate in candidates],
+                }
+            )
+
+            seen_codes_for_strategy: set[str] = set()
+            for candidate in candidates:
+                code = candidate.item.code
+                if code not in seen_codes_for_strategy:
+                    appearances[code] = appearances.get(code, 0) + 1
+                    seen_codes_for_strategy.add(code)
+
+                existing = best_by_code.get(code)
+                if existing is None or self._candidate_sort_key(candidate) > self._candidate_sort_key(existing):
+                    best_by_code[code] = candidate
+
+        combined_candidates = sorted(
+            best_by_code.values(),
+            key=self._candidate_sort_key,
+            reverse=True,
+        )[: max(5, min(default_limit * 2, 12))]
+
+        overlap_codes = sorted(code for code, count in appearances.items() if count > 1)
+        return {
+            "base_search_request": self._recommend_payload(scope_item, default_limit) | {"section": scope_item.section},
+            "strategy_results": strategy_results,
+            "combined_candidates": [candidate.to_dict() for candidate in combined_candidates],
+            "overlap_codes": overlap_codes,
+        }
 
     def get_item(self, code: str) -> CatalogLineItem:
         normalized_code = code.strip().upper()
@@ -73,3 +124,17 @@ class RuntimeCatalogClient:
         except httpx.HTTPError as exc:
             raise RuntimeClientError(f"Runtime API request failed: {exc}") from exc
 
+    @staticmethod
+    def _recommend_payload(scope_item: EstimateScopeItem, limit: int) -> dict[str, Any]:
+        return {
+            "query": scope_item.description,
+            "room": scope_item.room,
+            "surface": scope_item.surface,
+            "damage_type": scope_item.damage_type,
+            "keywords": scope_item.keywords,
+            "limit": limit,
+        }
+
+    @staticmethod
+    def _candidate_sort_key(candidate: RecommendationCandidate) -> tuple[float, int, str]:
+        return (candidate.score, confidence_rank(candidate.confidence), candidate.item.code)

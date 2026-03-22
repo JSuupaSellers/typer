@@ -155,6 +155,118 @@ class OpenAIDraftAgent:
             },
             {
                 "type": "function",
+                "name": "explore_line_item_search",
+                "description": (
+                    "Try 2-4 alternate search strategies for the same atomic scope item and compare the results. "
+                    "Use this when the first search looks weak, overly broad, wrong-category, or ambiguous. "
+                    "Each strategy should represent a different estimator-style phrasing, such as generic workflow, "
+                    "surface-first phrasing, synonym phrasing, or a more domain-specific phrase."
+                ),
+                "strict": True,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Required. The base atomic scope item being explored.",
+                        },
+                        "room": {
+                            "type": ["string", "null"],
+                            "description": "Optional room or area, for example 'Living room' or 'Kitchen'.",
+                        },
+                        "section": {
+                            "type": ["string", "null"],
+                            "description": "Optional section like 'Ceiling', 'Walls', 'Floors', 'Electrical', or 'Plumbing'.",
+                        },
+                        "surface": {
+                            "type": ["string", "null"],
+                            "description": "Optional affected surface or component, for example 'Ceiling' or 'Wall'.",
+                        },
+                        "damage_type": {
+                            "type": ["string", "null"],
+                            "description": "Optional repair or damage pattern, for example 'Paint', 'Patch', 'Seal', or 'Protection'.",
+                        },
+                        "keywords": {
+                            "type": ["string", "null"],
+                            "description": "Optional comma-free shorthand keywords like 'water stain shellac' or 'carpet coating protect'.",
+                        },
+                        "limit": {
+                            "type": ["integer", "null"],
+                            "description": "Optional result cap per strategy. Use 3-6 in most cases.",
+                        },
+                        "strategies": {
+                            "type": "array",
+                            "description": (
+                                "Two to four alternate search plans. Make each one meaningfully different. "
+                                "Example names: 'generic_paint', 'surface_first', 'synonym_variant', 'domain_specific'."
+                            ),
+                            "minItems": 2,
+                            "maxItems": 4,
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "description": "Short label describing the strategy.",
+                                    },
+                                    "query": {
+                                        "type": ["string", "null"],
+                                        "description": "Optional override search phrase for this strategy.",
+                                    },
+                                    "room": {
+                                        "type": ["string", "null"],
+                                        "description": "Optional override room.",
+                                    },
+                                    "section": {
+                                        "type": ["string", "null"],
+                                        "description": "Optional override section.",
+                                    },
+                                    "surface": {
+                                        "type": ["string", "null"],
+                                        "description": "Optional override surface.",
+                                    },
+                                    "damage_type": {
+                                        "type": ["string", "null"],
+                                        "description": "Optional override damage type.",
+                                    },
+                                    "keywords": {
+                                        "type": ["string", "null"],
+                                        "description": "Optional override shorthand keywords.",
+                                    },
+                                    "limit": {
+                                        "type": ["integer", "null"],
+                                        "description": "Optional override result cap for this strategy.",
+                                    },
+                                },
+                                "required": [
+                                    "name",
+                                    "query",
+                                    "room",
+                                    "section",
+                                    "surface",
+                                    "damage_type",
+                                    "keywords",
+                                    "limit",
+                                ],
+                                "additionalProperties": False,
+                            },
+                        },
+                    },
+                    "required": [
+                        "query",
+                        "room",
+                        "section",
+                        "surface",
+                        "damage_type",
+                        "keywords",
+                        "limit",
+                        "strategies",
+                    ],
+                    "additionalProperties": False,
+                },
+            },
+            {
+                "type": "function",
                 "name": "get_line_item",
                 "description": "Load a known CAT/SEL code and its details from the curated catalog.",
                 "strict": True,
@@ -171,29 +283,16 @@ class OpenAIDraftAgent:
 
     def _run_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if name == "search_line_items":
-            scope_item = EstimateScopeItem(
-                item_id="tool-search",
-                description=str(arguments.get("query", "")).strip(),
-                room=str(arguments.get("room", "")).strip(),
-                section=str(arguments.get("section", "")).strip(),
-                surface=str(arguments.get("surface", "")).strip(),
-                damage_type=str(arguments.get("damage_type", "")).strip(),
-                keywords=str(arguments.get("keywords", "")).strip(),
-            )
+            scope_item = self._scope_item_from_tool_arguments(arguments, item_id="tool-search")
             limit = max(int(arguments.get("limit", 5) or 5), 1)
             candidates = self.runtime_client.recommend_for_item(scope_item, limit)
-            return {
-                "search_request": {
-                    "query": scope_item.description,
-                    "room": scope_item.room,
-                    "section": scope_item.section,
-                    "surface": scope_item.surface,
-                    "damage_type": scope_item.damage_type,
-                    "keywords": scope_item.keywords,
-                    "limit": limit,
-                },
-                "candidates": [candidate.to_dict() for candidate in candidates],
-            }
+            return self._search_response(scope_item, limit, candidates)
+        if name == "explore_line_item_search":
+            scope_item = self._scope_item_from_tool_arguments(arguments, item_id="tool-search-explore")
+            limit = max(int(arguments.get("limit", 5) or 5), 1)
+            raw_strategies = arguments.get("strategies", [])
+            strategies = [strategy for strategy in raw_strategies if isinstance(strategy, dict)]
+            return self.runtime_client.explore_strategies(scope_item, strategies, limit)
         if name == "get_line_item":
             item = self.runtime_client.get_item(str(arguments.get("code", "")).strip())
             return {"item": item.to_dict()}
@@ -206,14 +305,15 @@ class OpenAIDraftAgent:
             "Always keep scope organized by room, then by section from ceiling to floor where appropriate. "
             "Typical section names are Ceiling, Walls, Floors, then system-specific sections like Cabinetry, Plumbing, Electrical, or HVAC when they matter. "
             "The backend automatically inserts note separator rows from section titles, so your operations should focus on line items. "
-            "Never invent CAT/SEL codes. Use search_line_items and get_line_item before adding any line item. "
+            "Never invent CAT/SEL codes. Use search_line_items, explore_line_item_search, and get_line_item before adding any line item. "
             "For search_line_items, search one atomic scope item at a time. "
             "Do not send the whole user narrative into the tool. "
             "Convert each need into a short estimator-style query like 'seal water stain ceiling', "
             "'paint acoustic ceiling', 'paint wall', 'drywall patch 2x2', or 're-apply protective coating carpet'. "
             "If the user describes multiple needs, make multiple search_line_items calls. "
             "Use room, section, surface, damage_type, and keywords fields to narrow the search instead of overloading query text. "
-            "When a search returns weak or obviously wrong candidates, try a narrower or more domain-specific query before giving up. "
+            "When a search returns weak or obviously wrong candidates, first try a narrower or more domain-specific query. "
+            "If you want to compare different phrasings or tactics, call explore_line_item_search with 2-4 distinct strategies such as generic workflow, synonym variant, surface-first phrasing, or domain-specific phrasing. "
             "If the user asks what search returned, answer with the top returned CAT/SEL candidates and why they look right or wrong. "
             "Preserve existing accepted items unless the user clearly asks to remove or replace them. "
             "When the user corrects a room or section, use clear_section or remove_line_item before adding replacements. "
@@ -240,6 +340,36 @@ class OpenAIDraftAgent:
             f"Recent conversation:\n{recent_messages}\n\n"
             f"Latest user turn:\n{user_text}\n"
         )
+
+    def _scope_item_from_tool_arguments(self, arguments: dict[str, Any], item_id: str) -> EstimateScopeItem:
+        return EstimateScopeItem(
+            item_id=item_id,
+            description=str(arguments.get("query", "")).strip(),
+            room=str(arguments.get("room", "")).strip(),
+            section=str(arguments.get("section", "")).strip(),
+            surface=str(arguments.get("surface", "")).strip(),
+            damage_type=str(arguments.get("damage_type", "")).strip(),
+            keywords=str(arguments.get("keywords", "")).strip(),
+        )
+
+    def _search_response(
+        self,
+        scope_item: EstimateScopeItem,
+        limit: int,
+        candidates: list[Any],
+    ) -> dict[str, Any]:
+        return {
+            "search_request": {
+                "query": scope_item.description,
+                "room": scope_item.room,
+                "section": scope_item.section,
+                "surface": scope_item.surface,
+                "damage_type": scope_item.damage_type,
+                "keywords": scope_item.keywords,
+                "limit": limit,
+            },
+            "candidates": [candidate.to_dict() for candidate in candidates],
+        }
 
     def _function_calls(self, response: dict[str, Any]) -> list[dict[str, Any]]:
         calls: list[dict[str, Any]] = []

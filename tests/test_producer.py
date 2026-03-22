@@ -59,13 +59,81 @@ class FakeRuntimeClient:
                 _candidate(self.paint_item, "high", 47.0, "Paint playbook matched the ceiling repaint scope."),
             ],
         }
+        self.recommendations_by_query = {
+            "drywall patch 2x2": [
+                _candidate(self.patch_item, patch_confidence, patch_score, "Patch playbook matched the ceiling repair scope."),
+                _candidate(self.paint_item, "medium", 25.0, "Ceiling paint is often paired with a patch."),
+            ],
+            "paint ceiling": [
+                _candidate(self.paint_item, "high", 47.0, "Paint playbook matched the ceiling repaint scope."),
+            ],
+            "ceiling paint": [
+                _candidate(self.paint_item, "high", 46.0, "Generic ceiling paint search surfaced the right workflow."),
+            ],
+            "drywall repair": [
+                _candidate(self.patch_item, "medium", 40.0, "Broader drywall repair phrasing still found the patch item."),
+            ],
+        }
         self.items_by_code = {
             self.patch_item.code: self.patch_item,
             self.paint_item.code: self.paint_item,
         }
 
     def recommend_for_item(self, scope_item, limit: int):
-        return list(self.recommendations.get(scope_item.item_id, []))[:limit]
+        candidates = self.recommendations.get(scope_item.item_id)
+        if candidates is None:
+            candidates = self.recommendations_by_query.get(scope_item.description.strip().lower(), [])
+        return list(candidates)[:limit]
+
+    def explore_strategies(self, scope_item, strategies, default_limit: int):
+        strategy_results = []
+        combined: dict[str, RecommendationCandidate] = {}
+
+        for index, strategy in enumerate(strategies, start=1):
+            query = (strategy.get("query") or scope_item.description).strip()
+            strategy_scope = type(scope_item)(
+                item_id=f"{scope_item.item_id}-strategy-{index}",
+                description=query,
+                room=(strategy.get("room") or scope_item.room).strip(),
+                section=(strategy.get("section") or scope_item.section).strip(),
+                surface=(strategy.get("surface") or scope_item.surface).strip(),
+                damage_type=(strategy.get("damage_type") or scope_item.damage_type).strip(),
+                keywords=(strategy.get("keywords") or scope_item.keywords).strip(),
+            )
+            limit = int(strategy.get("limit") or default_limit)
+            candidates = self.recommend_for_item(strategy_scope, limit)
+            strategy_results.append(
+                {
+                    "name": strategy.get("name", f"strategy_{index}"),
+                    "search_request": {
+                        "query": strategy_scope.description,
+                        "room": strategy_scope.room,
+                        "section": strategy_scope.section,
+                        "surface": strategy_scope.surface,
+                        "damage_type": strategy_scope.damage_type,
+                        "keywords": strategy_scope.keywords,
+                        "limit": limit,
+                    },
+                    "candidates": [candidate.to_dict() for candidate in candidates],
+                }
+            )
+            for candidate in candidates:
+                combined.setdefault(candidate.item.code, candidate)
+
+        return {
+            "base_search_request": {
+                "query": scope_item.description,
+                "room": scope_item.room,
+                "section": scope_item.section,
+                "surface": scope_item.surface,
+                "damage_type": scope_item.damage_type,
+                "keywords": scope_item.keywords,
+                "limit": default_limit,
+            },
+            "strategy_results": strategy_results,
+            "combined_candidates": [candidate.to_dict() for candidate in combined.values()],
+            "overlap_codes": [],
+        }
 
     def get_item(self, code: str) -> CatalogLineItem:
         normalized = code.strip().upper()
@@ -397,6 +465,13 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(parameters["properties"]["limit"]["type"], ["integer", "null"])
         self.assertIn("compact 2-8 word search phrase", parameters["properties"]["query"]["description"])
 
+        explore_tool = next(tool for tool in agent._tool_definitions() if tool["name"] == "explore_line_item_search")
+        strategy_items = explore_tool["parameters"]["properties"]["strategies"]["items"]
+        self.assertEqual(explore_tool["parameters"]["properties"]["strategies"]["minItems"], 2)
+        self.assertEqual(explore_tool["parameters"]["properties"]["strategies"]["maxItems"], 4)
+        self.assertEqual(strategy_items["properties"]["query"]["type"], ["string", "null"])
+        self.assertEqual(strategy_items["properties"]["limit"]["type"], ["integer", "null"])
+
     def test_openai_agent_uses_stored_responses_for_tool_loops(self) -> None:
         agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())
 
@@ -430,6 +505,52 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(result["search_request"]["query"], "drywall patch 2x2")
         self.assertEqual(result["search_request"]["section"], "Ceiling")
         self.assertIn("candidates", result)
+
+    def test_exploration_tool_returns_grouped_strategy_results(self) -> None:
+        agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())
+
+        result = agent._run_tool(
+            "explore_line_item_search",
+            {
+                "query": "ceiling repair and paint",
+                "room": "Living room",
+                "section": "Ceiling",
+                "surface": "Ceiling",
+                "damage_type": "Patch",
+                "keywords": "picture frame ceiling patch",
+                "limit": 4,
+                "strategies": [
+                    {
+                        "name": "specific_patch",
+                        "query": "drywall patch 2x2",
+                        "room": None,
+                        "section": None,
+                        "surface": None,
+                        "damage_type": None,
+                        "keywords": None,
+                        "limit": 4,
+                    },
+                    {
+                        "name": "generic_paint",
+                        "query": "paint ceiling",
+                        "room": None,
+                        "section": None,
+                        "surface": None,
+                        "damage_type": "Paint",
+                        "keywords": "ceiling paint",
+                        "limit": 3,
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(result["base_search_request"]["section"], "Ceiling")
+        self.assertEqual(len(result["strategy_results"]), 2)
+        self.assertEqual(result["strategy_results"][0]["name"], "specific_patch")
+        self.assertEqual(result["strategy_results"][0]["search_request"]["query"], "drywall patch 2x2")
+        combined_codes = {candidate["item"]["code"] for candidate in result["combined_candidates"]}
+        self.assertIn("DRY/PCH", combined_codes)
+        self.assertIn("PNT/SP", combined_codes)
 
     def test_chat_endpoint_surfaces_agent_failures(self) -> None:
         service = ProducerService(self.config, FakeRuntimeClient(), FakePublisher())
