@@ -1,0 +1,404 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		156E9F048EC964DBC19665C1 /* BackendClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D6A58AD020547FD59E6F6C6 /* BackendClient.swift */; };
+		2BE6EAE4EC62A555777F5A53 /* AudioRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8FEF9FF6CDB7F8B19444B21 /* AudioRecorder.swift */; };
+		942B40F043565906F64DCE37 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87F012D147BF8B73C75A79A0 /* AppModel.swift */; };
+		9491B4EDCECAA702396D4EE0 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 076DD6DA349AF9673929A90F /* ContentView.swift */; };
+		A3CCB94D0A159E6D2CCE3A3C /* BackendModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F2309B290902367A38DCB47 /* BackendModelsTests.swift */; };
+		C2091E137FD805B523575D5E /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D2695DD2DB51633A60DCBDC /* Models.swift */; };
+		FE5CE94DBF049C469BE6F83D /* XactimateFieldCaptureApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3A476B5811571E5B5DD8DF3 /* XactimateFieldCaptureApp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		9A794468F5515743209157E4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 03D4C7F8A715E9281DEA2DE1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B135EE214FB36FD501E0A4A6;
+			remoteInfo = XactimateFieldCapture;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		076DD6DA349AF9673929A90F /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		480F7F211529470F09CC54AF /* XactimateFieldCapture.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = XactimateFieldCapture.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		790D9F39D773CD4E5CCF777A /* XactimateFieldCaptureTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = XactimateFieldCaptureTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		7D2695DD2DB51633A60DCBDC /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		87F012D147BF8B73C75A79A0 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		8D6A58AD020547FD59E6F6C6 /* BackendClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendClient.swift; sourceTree = "<group>"; };
+		8F2309B290902367A38DCB47 /* BackendModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendModelsTests.swift; sourceTree = "<group>"; };
+		E3A476B5811571E5B5DD8DF3 /* XactimateFieldCaptureApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XactimateFieldCaptureApp.swift; sourceTree = "<group>"; };
+		F8FEF9FF6CDB7F8B19444B21 /* AudioRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioRecorder.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		4FD34169D23CCAC90DD46585 = {
+			isa = PBXGroup;
+			children = (
+				8D5957F2F84A08F70DCD3FE5 /* Sources */,
+				846D1838C8B542FEAA91CC80 /* XactimateFieldCaptureTests */,
+				5BDFC687510CE5834897F4E1 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5BDFC687510CE5834897F4E1 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				480F7F211529470F09CC54AF /* XactimateFieldCapture.app */,
+				790D9F39D773CD4E5CCF777A /* XactimateFieldCaptureTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		846D1838C8B542FEAA91CC80 /* XactimateFieldCaptureTests */ = {
+			isa = PBXGroup;
+			children = (
+				8F2309B290902367A38DCB47 /* BackendModelsTests.swift */,
+			);
+			path = XactimateFieldCaptureTests;
+			sourceTree = "<group>";
+		};
+		8D5957F2F84A08F70DCD3FE5 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				87F012D147BF8B73C75A79A0 /* AppModel.swift */,
+				F8FEF9FF6CDB7F8B19444B21 /* AudioRecorder.swift */,
+				8D6A58AD020547FD59E6F6C6 /* BackendClient.swift */,
+				076DD6DA349AF9673929A90F /* ContentView.swift */,
+				7D2695DD2DB51633A60DCBDC /* Models.swift */,
+				E3A476B5811571E5B5DD8DF3 /* XactimateFieldCaptureApp.swift */,
+			);
+			name = Sources;
+			path = XactimateFieldCapture/Sources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A0EC223D13F52CCC1B5FCFAF /* XactimateFieldCaptureTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8D54109B79A074234B481781 /* Build configuration list for PBXNativeTarget "XactimateFieldCaptureTests" */;
+			buildPhases = (
+				21A3F46EDCF2708062AA909A /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				9635AAF130905E3A1CF7F0CE /* PBXTargetDependency */,
+			);
+			name = XactimateFieldCaptureTests;
+			packageProductDependencies = (
+			);
+			productName = XactimateFieldCaptureTests;
+			productReference = 790D9F39D773CD4E5CCF777A /* XactimateFieldCaptureTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		B135EE214FB36FD501E0A4A6 /* XactimateFieldCapture */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 55DB89A785CE7DBA98EC55A1 /* Build configuration list for PBXNativeTarget "XactimateFieldCapture" */;
+			buildPhases = (
+				734D1561B44736F6677A041A /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = XactimateFieldCapture;
+			packageProductDependencies = (
+			);
+			productName = XactimateFieldCapture;
+			productReference = 480F7F211529470F09CC54AF /* XactimateFieldCapture.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		03D4C7F8A715E9281DEA2DE1 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+			};
+			buildConfigurationList = 8B03E6A733B7A2BD87118997 /* Build configuration list for PBXProject "XactimateFieldCapture" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 4FD34169D23CCAC90DD46585;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				B135EE214FB36FD501E0A4A6 /* XactimateFieldCapture */,
+				A0EC223D13F52CCC1B5FCFAF /* XactimateFieldCaptureTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		21A3F46EDCF2708062AA909A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A3CCB94D0A159E6D2CCE3A3C /* BackendModelsTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		734D1561B44736F6677A041A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				942B40F043565906F64DCE37 /* AppModel.swift in Sources */,
+				2BE6EAE4EC62A555777F5A53 /* AudioRecorder.swift in Sources */,
+				156E9F048EC964DBC19665C1 /* BackendClient.swift in Sources */,
+				9491B4EDCECAA702396D4EE0 /* ContentView.swift in Sources */,
+				C2091E137FD805B523575D5E /* Models.swift in Sources */,
+				FE5CE94DBF049C469BE6F83D /* XactimateFieldCaptureApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		9635AAF130905E3A1CF7F0CE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B135EE214FB36FD501E0A4A6 /* XactimateFieldCapture */;
+			targetProxy = 9A794468F5515743209157E4 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2DBD74C5F744D1C1E46A580F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = XactimateFieldCapture/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.joshuasellers.XactimateFieldCapture;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		3A62EC159394C4DA427939DA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.joshuasellers.XactimateFieldCaptureTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/XactimateFieldCapture.app/XactimateFieldCapture";
+			};
+			name = Release;
+		};
+		65037F19BA8B89EA3D4A5FFD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.joshuasellers.XactimateFieldCaptureTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/XactimateFieldCapture.app/XactimateFieldCapture";
+			};
+			name = Debug;
+		};
+		7A7C9EC3DBF93E9675CFCCF9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.1;
+			};
+			name = Release;
+		};
+		7E69E045111F2BE9AFD6AD3A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = XactimateFieldCapture/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.joshuasellers.XactimateFieldCapture;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		E7DC95E0B010E93A56989575 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.1;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		55DB89A785CE7DBA98EC55A1 /* Build configuration list for PBXNativeTarget "XactimateFieldCapture" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				2DBD74C5F744D1C1E46A580F /* Debug */,
+				7E69E045111F2BE9AFD6AD3A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8B03E6A733B7A2BD87118997 /* Build configuration list for PBXProject "XactimateFieldCapture" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E7DC95E0B010E93A56989575 /* Debug */,
+				7A7C9EC3DBF93E9675CFCCF9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8D54109B79A074234B481781 /* Build configuration list for PBXNativeTarget "XactimateFieldCaptureTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				65037F19BA8B89EA3D4A5FFD /* Debug */,
+				3A62EC159394C4DA427939DA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 03D4C7F8A715E9281DEA2DE1 /* Project object */;
+}

@@ -2,20 +2,29 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 
 from .config import ProducerConfig
 from .models import EstimateJob
 from .service import ProducerReviewRequiredError, ProducerService
+from .transcription import TranscriptionServiceProtocol, default_adjuster_prompt
 
 
-def create_app(config: ProducerConfig, service: ProducerService) -> FastAPI:
+def create_app(
+    config: ProducerConfig,
+    service: ProducerService,
+    transcription_service: TranscriptionServiceProtocol | None = None,
+) -> FastAPI:
     app = FastAPI(title="Xactimate Producer", version="0.1.0")
     app.state.config = config
     app.state.service = service
+    app.state.transcription_service = transcription_service
 
     def get_service(request: Request) -> ProducerService:
         return request.app.state.service
+
+    def get_transcription_service(request: Request) -> TranscriptionServiceProtocol | None:
+        return request.app.state.transcription_service
 
     def authorize(
         request: Request,
@@ -33,6 +42,70 @@ def create_app(config: ProducerConfig, service: ProducerService) -> FastAPI:
             "runtime_api_base_url": runtime_url,
             "commands_path_template": request.app.state.config.firebase_commands_path_template,
             "state_path_template": request.app.state.config.firebase_state_path_template,
+        }
+
+    @app.post("/capture/intake")
+    async def capture_intake(
+        job_id: Annotated[str, Form()] = "job",
+        bridge_id: Annotated[str, Form()] = "default",
+        item_id: Annotated[str, Form()] = "scope-1",
+        room: Annotated[str, Form()] = "",
+        surface: Annotated[str, Form()] = "",
+        damage_type: Annotated[str, Form()] = "",
+        keywords: Annotated[str, Form()] = "",
+        quantity: Annotated[str, Form()] = "",
+        description: Annotated[str, Form()] = "",
+        audio: UploadFile | None = File(default=None),
+        photos: list[UploadFile] = File(default_factory=list),
+        _auth: None = Depends(authorize),
+        transcription: TranscriptionServiceProtocol | None = Depends(get_transcription_service),
+    ) -> dict[str, object]:
+        transcript = ""
+        warnings: list[str] = []
+        audio_filename = ""
+
+        if audio is not None and audio.filename:
+            audio_filename = audio.filename
+            audio_bytes = await audio.read()
+            if transcription is None:
+                warnings.append("Audio was uploaded, but backend transcription is not configured.")
+            elif audio_bytes:
+                transcript = await transcription.transcribe_audio(
+                    audio.filename,
+                    audio_bytes,
+                    prompt=default_adjuster_prompt(),
+                )
+
+        photo_filenames = [photo.filename or f"photo-{index + 1}" for index, photo in enumerate(photos)]
+        description_parts = [description.strip()]
+        if transcript and transcript.lower() != description.strip().lower():
+            description_parts.append(transcript)
+        combined_description = "\n\n".join(part for part in description_parts if part)
+
+        draft_job = {
+            "job_id": job_id.strip() or "job",
+            "bridge_id": bridge_id.strip() or "default",
+            "items": [
+                {
+                    "item_id": item_id.strip() or "scope-1",
+                    "description": combined_description,
+                    "room": room.strip(),
+                    "surface": surface.strip(),
+                    "damage_type": damage_type.strip(),
+                    "keywords": keywords.strip(),
+                    "quantity": quantity.strip(),
+                }
+            ],
+        }
+
+        return {
+            "status": "ok",
+            "message": "Capture draft prepared." if not warnings else " ".join(warnings),
+            "transcript": transcript,
+            "audio_filename": audio_filename,
+            "photo_count": len(photo_filenames),
+            "photo_filenames": photo_filenames,
+            "job": draft_job,
         }
 
     @app.post("/plan")
@@ -70,4 +143,3 @@ def create_app(config: ProducerConfig, service: ProducerService) -> FastAPI:
         return result.to_dict()
 
     return app
-

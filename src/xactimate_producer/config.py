@@ -111,6 +111,9 @@ class ProducerConfig:
     runtime_api_base_url: str = "http://127.0.0.1:8787"
     runtime_api_key: str = ""
     producer_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_api_key: str = ""
+    transcription_model: str = "gpt-4o-transcribe"
     request_timeout_s: float = 20.0
     firebase_credentials_path: str = ""
     firebase_database_url: str = ""
@@ -128,6 +131,9 @@ class ProducerConfig:
             runtime_api_base_url=str(raw.get("runtime_api_base_url", "http://127.0.0.1:8787")).strip(),
             runtime_api_key=str(raw.get("runtime_api_key", "")).strip(),
             producer_api_key=str(raw.get("producer_api_key", "")).strip(),
+            openai_base_url=str(raw.get("openai_base_url", "https://api.openai.com/v1")).strip(),
+            openai_api_key=str(raw.get("openai_api_key", "")).strip(),
+            transcription_model=str(raw.get("transcription_model", "gpt-4o-transcribe")).strip() or "gpt-4o-transcribe",
             request_timeout_s=max(float(raw.get("request_timeout_s", 20.0) or 20.0), 1.0),
             firebase_credentials_path=str(raw.get("firebase_credentials_path", "")).strip(),
             firebase_database_url=str(raw.get("firebase_database_url", "")).strip(),
@@ -171,6 +177,8 @@ class ProducerConfig:
         errors: list[str] = []
         if not self.runtime_api_base_url:
             errors.append("runtime_api_base_url is required")
+        if not self.openai_base_url:
+            errors.append("openai_base_url is required")
         if self.request_timeout_s <= 0:
             errors.append("request_timeout_s must be positive")
         if not self.firebase_commands_path_template:
@@ -181,6 +189,14 @@ class ProducerConfig:
             errors.append("recommendation_limit must be positive")
         if not self.workflow_profile.per_item:
             errors.append("workflow_profile.per_item must include at least one step")
+        return errors
+
+    def validate_for_capture(self) -> list[str]:
+        errors = self.validate()
+        if not self.openai_api_key:
+            errors.append("openai_api_key is required for capture transcription")
+        if not self.transcription_model:
+            errors.append("transcription_model is required for capture transcription")
         return errors
 
     def validate_for_publish(self) -> list[str]:
@@ -201,4 +217,3 @@ class ProducerConfig:
     def state_path(self, bridge_id: str) -> str:
         rendered = self.firebase_state_path_template.format(bridge_id=bridge_id.strip() or "default")
         return _normalize_db_path_template(rendered)
-

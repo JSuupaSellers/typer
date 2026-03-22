@@ -1,0 +1,44 @@
+name: XactimateFieldCapture
+
+options:
+  minimumXcodeGenVersion: 2.38.0
+  defaultConfig: Debug
+
+settings:
+  base:
+    SWIFT_VERSION: 5.10
+
+targets:
+  XactimateFieldCapture:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: XactimateFieldCapture/Sources
+    info:
+      path: XactimateFieldCapture/Info.plist
+      properties:
+        UILaunchScreen: {}
+        NSMicrophoneUsageDescription: Capture room notes for backend transcription.
+        NSPhotoLibraryUsageDescription: Select estimate photos to upload with the field note draft.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.joshuasellers.XactimateFieldCapture
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+    scheme:
+      testTargets:
+        - XactimateFieldCaptureTests
+
+  XactimateFieldCaptureTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: XactimateFieldCaptureTests
+    dependencies:
+      - target: XactimateFieldCapture
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.joshuasellers.XactimateFieldCaptureTests
+        GENERATE_INFOPLIST_FILE: YES

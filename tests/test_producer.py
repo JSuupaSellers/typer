@@ -132,6 +132,11 @@ class FakePublisher:
         )
 
 
+class FakeTranscriptionService:
+    async def transcribe_audio(self, filename: str, content: bytes, prompt: str = "") -> str:
+        return f"Transcript for {filename} ({len(content)} bytes)"
+
+
 class ProducerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.config = ProducerConfig.from_dict(
@@ -217,7 +222,7 @@ class ProducerTests(unittest.TestCase):
 
     def test_api_endpoints(self) -> None:
         service = ProducerService(self.config, FakeRuntimeClient(), FakePublisher())
-        client = TestClient(create_app(self.config, service))
+        client = TestClient(create_app(self.config, service, transcription_service=FakeTranscriptionService()))
 
         unauthorized = client.get("/health")
         self.assertEqual(unauthorized.status_code, 401)
@@ -244,6 +249,33 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(published.status_code, 200)
         self.assertEqual(published.json()["starting_seq"], 1)
         self.assertEqual(published.json()["approved_codes"], ["DRY/PCH", "PNT/SP"])
+
+        intake = client.post(
+            "/capture/intake",
+            headers=headers,
+            data={
+                "job_id": "claim-2048",
+                "bridge_id": "field",
+                "item_id": "scope-9",
+                "room": "Kitchen",
+                "surface": "Ceiling",
+                "damage_type": "Patch",
+                "keywords": "water spot",
+                "quantity": "2",
+                "description": "Visible water damage around the opening.",
+            },
+            files=[
+                ("audio", ("note.m4a", b"audio-bytes", "audio/mp4")),
+                ("photos", ("photo1.jpg", b"fake-jpeg-1", "image/jpeg")),
+                ("photos", ("photo2.jpg", b"fake-jpeg-2", "image/jpeg")),
+            ],
+        )
+        self.assertEqual(intake.status_code, 200)
+        intake_payload = intake.json()
+        self.assertEqual(intake_payload["transcript"], "Transcript for note.m4a (11 bytes)")
+        self.assertEqual(intake_payload["photo_count"], 2)
+        self.assertEqual(intake_payload["job"]["job_id"], "claim-2048")
+        self.assertIn("Transcript for note.m4a", intake_payload["job"]["items"][0]["description"])
 
 
 if __name__ == "__main__":

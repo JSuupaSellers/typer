@@ -105,6 +105,8 @@ Fill in:
 
 - `runtime_api_base_url`
 - `runtime_api_key` if your runtime search API requires one
+- `openai_api_key` if you want the producer to transcribe uploaded field audio
+- `transcription_model` if you want to override the default `gpt-4o-transcribe`
 - `firebase_credentials_path`
 - `firebase_database_url`
 - `firebase_commands_path_template`
@@ -186,11 +188,50 @@ python -m xactimate_producer --config producer.local.json serve --port 8790
 Endpoints:
 
 - `GET /health`
+- `POST /capture/intake`
 - `POST /plan`
 - `POST /compile`
 - `POST /publish`
 
-This is the service your cloud agent should call once it has a transcript or other structured room description ready.
+`POST /capture/intake` is the bridge from a mobile capture app into the producer. It accepts multipart form data with:
+
+- estimate metadata like `job_id`, `bridge_id`, `room`, `surface`, `damage_type`, `keywords`, and `quantity`
+- optional `description` text
+- optional `audio` for OpenAI transcription on the backend
+- optional repeated `photos`
+
+Example:
+
+```bash
+curl -X POST http://127.0.0.1:8790/capture/intake \
+  -H "X-API-Key: your-producer-key" \
+  -F "job_id=claim-1024-living-room" \
+  -F "bridge_id=default" \
+  -F "room=Living room" \
+  -F "surface=Ceiling" \
+  -F "damage_type=Patch" \
+  -F "keywords=picture frame" \
+  -F "quantity=1" \
+  -F "description=2x2 ceiling patch that needs picture frame and then ceiling painted" \
+  -F "audio=@room-note.m4a"
+```
+
+The response includes a draft estimate job payload you can send to `POST /plan` and then `POST /publish`.
+
+This is the service your cloud agent or mobile capture app should call once it has a transcript or other structured room description ready.
+
+## iPhone Field App
+
+The thin capture app lives under [apps/XactimateFieldCapture/README.md](/Users/joshuasellers/Documents/Development/App/Typer/apps/XactimateFieldCapture/README.md).
+
+Use it when you want a field-friendly front end for:
+
+- audio capture
+- photo attachment
+- backend draft preparation
+- plan review before publish
+
+The app is intentionally light. Your backend still holds the OpenAI key, runs the producer API, and decides when a plan is safe to publish.
 
 ## OpenAI MCP Server
 

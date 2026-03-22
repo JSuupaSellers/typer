@@ -12,6 +12,7 @@ from .models import EstimateJob
 from .publisher import FirebaseCommandPublisher
 from .runtime_client import RuntimeCatalogClient
 from .service import ProducerReviewRequiredError, ProducerService
+from .transcription import OpenAITranscriptionService, TranscriptionConfig
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -56,7 +57,15 @@ def main(argv: list[str] | None = None) -> int:
         ) as runtime_client:
             publisher = FirebaseCommandPublisher(config)
             service = ProducerService(config, runtime_client, publisher)
-            app = create_app(config, service)
+            transcription_service = OpenAITranscriptionService(
+                TranscriptionConfig(
+                    base_url=config.openai_base_url,
+                    api_key=config.openai_api_key,
+                    model=config.transcription_model,
+                    timeout_s=config.request_timeout_s,
+                )
+            ) if config.openai_api_key.strip() else None
+            app = create_app(config, service, transcription_service=transcription_service)
             uvicorn.run(app, host=args.host, port=args.port)
         return 0
 
