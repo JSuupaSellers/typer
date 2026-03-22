@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 import unittest
 
@@ -211,6 +212,24 @@ class FakeTranscriptionService:
 class FailingAgent:
     async def apply_turn(self, draft: EstimateDraft, user_text: str):
         raise RuntimeError("Draft agent failed upstream.")
+
+
+class UnstructuredResponseAgent(OpenAIDraftAgent):
+    async def _create_response(self, payload):  # type: ignore[override]
+        return {
+            "id": "resp_fake",
+            "output": [
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "Updated the draft.",
+                        }
+                    ],
+                }
+            ],
+        }
 
 
 class ProducerTests(unittest.TestCase):
@@ -502,6 +521,11 @@ class ProducerTests(unittest.TestCase):
         self.assertIn("room-variable", defaults_tool["description"])
         self.assertIn("activity field", agent._system_prompt())
 
+        response_format = agent._response_text_format()
+        self.assertEqual(response_format["format"]["type"], "json_schema")
+        self.assertTrue(response_format["format"]["strict"])
+        self.assertEqual(response_format["format"]["schema"]["required"], ["assistant_reply", "operations"])
+
     def test_openai_agent_uses_stored_responses_for_tool_loops(self) -> None:
         agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())
 
@@ -628,6 +652,15 @@ class ProducerTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 502)
         self.assertEqual(response.json()["detail"], "Draft agent failed upstream.")
+
+    def test_openai_agent_rejects_unstructured_final_output(self) -> None:
+        agent = UnstructuredResponseAgent(self.config, FakeRuntimeClient())
+        draft = EstimateDraft.create("claim-unstructured", "default")
+
+        with self.assertRaises(RuntimeError) as caught:
+            asyncio.run(agent.apply_turn(draft, "Kitchen ceiling needs smoke cleanup and paint"))
+
+        self.assertIn("returned unstructured output", str(caught.exception))
 
 
 if __name__ == "__main__":

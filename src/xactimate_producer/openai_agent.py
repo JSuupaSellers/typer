@@ -34,6 +34,7 @@ class OpenAIDraftAgent:
                 "tools": self._tool_definitions(),
                 "tool_choice": "auto",
                 "store": True,
+                "text": self._response_text_format(),
                 "max_output_tokens": 3000,
             }
         )
@@ -66,6 +67,7 @@ class OpenAIDraftAgent:
                     "tools": self._tool_definitions(),
                     "tool_choice": "auto",
                     "store": True,
+                    "text": self._response_text_format(),
                     "max_output_tokens": 3000,
                 }
             )
@@ -73,6 +75,9 @@ class OpenAIDraftAgent:
 
         raw_output = self._output_text(response)
         payload = self._parse_json(raw_output)
+        if not payload and raw_output.strip():
+            preview = raw_output.strip().replace("\n", " ")[:280]
+            raise RuntimeError(f"OpenAI draft agent returned unstructured output instead of draft JSON: {preview}")
         assistant_reply = str(payload.get("assistant_reply", "")).strip() or "Updated the draft."
         operations = payload.get("operations", [])
         updated = self._apply_operations(draft, operations)
@@ -341,6 +346,63 @@ class OpenAIDraftAgent:
         if name == "get_estimating_defaults":
             return self._estimating_defaults(arguments)
         raise RuntimeError(f"Unknown tool call: {name}")
+
+    def _response_text_format(self) -> dict[str, Any]:
+        return {
+            "format": {
+                "type": "json_schema",
+                "name": "draft_turn_response",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "assistant_reply": {
+                            "type": "string",
+                            "description": "Short field-ready reply to show in the chat UI.",
+                        },
+                        "operations": {
+                            "type": "array",
+                            "description": "Ordered draft mutations to apply to the current claim draft.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "op": {
+                                        "type": "string",
+                                        "enum": ["clear_section", "remove_line_item", "add_line_item"],
+                                    },
+                                    "room": {"type": "string"},
+                                    "section": {"type": "string"},
+                                    "approved_code": {"type": "string"},
+                                    "description": {"type": "string"},
+                                    "quantity": {"type": "string"},
+                                    "activity": {"type": "string"},
+                                    "surface": {"type": "string"},
+                                    "damage_type": {"type": "string"},
+                                    "keywords": {"type": "string"},
+                                    "rationale": {"type": "string"},
+                                },
+                                "required": [
+                                    "op",
+                                    "room",
+                                    "section",
+                                    "approved_code",
+                                    "description",
+                                    "quantity",
+                                    "activity",
+                                    "surface",
+                                    "damage_type",
+                                    "keywords",
+                                    "rationale",
+                                ],
+                                "additionalProperties": False,
+                            },
+                        },
+                    },
+                    "required": ["assistant_reply", "operations"],
+                    "additionalProperties": False,
+                },
+            }
+        }
 
     def _system_prompt(self) -> str:
         return (
