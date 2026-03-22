@@ -536,9 +536,10 @@ class ProducerTests(unittest.TestCase):
             "tools": agent._tool_definitions(),
             "tool_choice": "auto",
             "store": True,
-            "max_output_tokens": 3000,
+            "max_output_tokens": agent._response_max_output_tokens(),
         }
         self.assertTrue(initial_payload["store"])
+        self.assertEqual(initial_payload["max_output_tokens"], 20_000)
 
     def test_search_tool_returns_search_request_context(self) -> None:
         agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())
@@ -661,6 +662,15 @@ class ProducerTests(unittest.TestCase):
             asyncio.run(agent.apply_turn(draft, "Kitchen ceiling needs smoke cleanup and paint"))
 
         self.assertIn("returned unstructured output", str(caught.exception))
+
+    def test_incomplete_reason_detects_incomplete_responses(self) -> None:
+        agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())
+
+        self.assertEqual(agent._incomplete_reason({"status": "incomplete"}), "incomplete")
+        self.assertEqual(
+            agent._incomplete_reason({"incomplete_details": {"reason": "max_output_tokens"}}),
+            "max_output_tokens",
+        )
 
 
 if __name__ == "__main__":

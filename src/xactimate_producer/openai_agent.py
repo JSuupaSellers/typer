@@ -35,7 +35,7 @@ class OpenAIDraftAgent:
                 "tool_choice": "auto",
                 "store": True,
                 "text": self._response_text_format(),
-                "max_output_tokens": 3000,
+                "max_output_tokens": self._response_max_output_tokens(),
             }
         )
         response_id = str(response.get("id", "")).strip()
@@ -68,7 +68,7 @@ class OpenAIDraftAgent:
                     "tool_choice": "auto",
                     "store": True,
                     "text": self._response_text_format(),
-                    "max_output_tokens": 3000,
+                    "max_output_tokens": self._response_max_output_tokens(),
                 }
             )
             response_id = str(response.get("id", response_id)).strip() or response_id
@@ -76,6 +76,12 @@ class OpenAIDraftAgent:
         raw_output = self._output_text(response)
         payload = self._parse_json(raw_output)
         if not payload and raw_output.strip():
+            incomplete_reason = self._incomplete_reason(response)
+            if incomplete_reason:
+                raise RuntimeError(
+                    "OpenAI draft agent ran out of output space while building this claim JSON. "
+                    "Try the same claim again after the larger output-budget update, or split the claim into smaller room groups if it still happens."
+                )
             preview = raw_output.strip().replace("\n", " ")[:280]
             raise RuntimeError(f"OpenAI draft agent returned unstructured output instead of draft JSON: {preview}")
         assistant_reply = str(payload.get("assistant_reply", "")).strip() or "Updated the draft."
@@ -89,7 +95,7 @@ class OpenAIDraftAgent:
             "Authorization": f"Bearer {self.config.openai_api_key.strip()}",
             "Content-Type": "application/json",
         }
-        timeout_s = max(float(self.config.request_timeout_s), 90.0)
+        timeout_s = max(float(self.config.request_timeout_s), 180.0)
         try:
             async with httpx.AsyncClient(timeout=timeout_s) as client:
                 response = await client.post(endpoint, headers=headers, json=payload)
@@ -346,6 +352,24 @@ class OpenAIDraftAgent:
         if name == "get_estimating_defaults":
             return self._estimating_defaults(arguments)
         raise RuntimeError(f"Unknown tool call: {name}")
+
+    def _response_max_output_tokens(self) -> int:
+        return 20_000
+
+    def _incomplete_reason(self, response: dict[str, Any]) -> str:
+        details = response.get("incomplete_details")
+        if isinstance(details, dict):
+            reason = str(details.get("reason", "")).strip()
+            if reason:
+                return reason
+        for item in response.get("output", []):
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("status", "")).strip().lower() == "incomplete":
+                return "incomplete"
+        if str(response.get("status", "")).strip().lower() == "incomplete":
+            return "incomplete"
+        return ""
 
     def _response_text_format(self) -> dict[str, Any]:
         return {

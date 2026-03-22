@@ -128,7 +128,7 @@ class ProducerConfig:
     transcription_model: str = "gpt-4o-transcribe"
     agent_model: str = "gpt-5.4"
     agent_reasoning_effort: str = "medium"
-    request_timeout_s: float = 90.0
+    request_timeout_s: float = 180.0
     draft_storage_dir: str = "runtime/drafts"
     firebase_credentials_path: str = ""
     firebase_database_url: str = ""
@@ -151,7 +151,7 @@ class ProducerConfig:
             transcription_model=str(raw.get("transcription_model", "gpt-4o-transcribe")).strip() or "gpt-4o-transcribe",
             agent_model=str(raw.get("agent_model", "gpt-5.4")).strip() or "gpt-5.4",
             agent_reasoning_effort=str(raw.get("agent_reasoning_effort", "medium")).strip().lower() or "medium",
-            request_timeout_s=max(float(raw.get("request_timeout_s", 90.0) or 90.0), 1.0),
+            request_timeout_s=max(float(raw.get("request_timeout_s", 180.0) or 180.0), 1.0),
             draft_storage_dir=str(raw.get("draft_storage_dir", "runtime/drafts")).strip() or "runtime/drafts",
             firebase_credentials_path=str(raw.get("firebase_credentials_path", "")).strip(),
             firebase_database_url=str(raw.get("firebase_database_url", "")).strip(),
