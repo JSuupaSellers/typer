@@ -747,132 +747,121 @@ private struct QuickReviewStageView: View {
     @EnvironmentObject private var model: CuratorAppModel
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                StageHeroCard(
-                    stage: .quickReview,
-                    eyebrow: "Stage 2",
-                    title: "Fast Confidence Pass",
-                    subtitle: "Move quickly through the catalog and decide whether each line item belongs in your working set. The goal here is speed, not perfect notes.",
-                    metrics: [
-                        .init(label: "Total", value: "\(model.stats.totalItems)"),
-                        .init(label: "Reviewed", value: "\(model.stats.reviewedItems)"),
-                        .init(label: "Used", value: "\(model.stats.usedItems)")
-                    ]
-                )
+        VStack(alignment: .leading, spacing: 18) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    StageHeroCard(
+                        stage: .quickReview,
+                        eyebrow: "Stage 2",
+                        title: "Fast Confidence Pass",
+                        subtitle: "Move quickly through the catalog and decide whether each line item belongs in your working set. The goal here is speed, not perfect notes.",
+                        metrics: [
+                            .init(label: "Total", value: "\(model.stats.totalItems)"),
+                            .init(label: "Reviewed", value: "\(model.stats.reviewedItems)"),
+                            .init(label: "Used", value: "\(model.stats.usedItems)")
+                        ]
+                    )
 
-                HStack(spacing: 14) {
-                    MetricCard(title: "Total", value: "\(model.stats.totalItems)", symbol: "square.stack.3d.up", tint: CuratorStage.quickReview.theme.accent)
-                    MetricCard(title: "Reviewed", value: "\(model.stats.reviewedItems)", symbol: "checkmark.circle", tint: CuratorStage.quickReview.theme.secondaryAccent)
-                    MetricCard(title: "Unreviewed", value: "\(model.stats.unreviewedItems)", symbol: "hourglass", tint: CuratorStage.quickReview.theme.accent)
-                    MetricCard(title: "Used Before", value: "\(model.stats.usedItems)", symbol: "star", tint: CuratorStage.quickReview.theme.secondaryAccent)
-                }
+                    HStack(spacing: 14) {
+                        MetricCard(title: "Total", value: "\(model.stats.totalItems)", symbol: "square.stack.3d.up", tint: CuratorStage.quickReview.theme.accent)
+                        MetricCard(title: "Reviewed", value: "\(model.stats.reviewedItems)", symbol: "checkmark.circle", tint: CuratorStage.quickReview.theme.secondaryAccent)
+                        MetricCard(title: "Unreviewed", value: "\(model.stats.unreviewedItems)", symbol: "hourglass", tint: CuratorStage.quickReview.theme.accent)
+                        MetricCard(title: "Used Before", value: "\(model.stats.usedItems)", symbol: "star", tint: CuratorStage.quickReview.theme.secondaryAccent)
+                    }
 
-                if let item = model.currentReviewItem {
-                    HStack(alignment: .top, spacing: 18) {
-                        CuratorPanel(tint: CuratorStage.quickReview.theme.accent) {
-                            VStack(alignment: .leading, spacing: 20) {
-                                HStack(alignment: .top) {
-                                    VStack(alignment: .leading, spacing: 10) {
-                                        Text("Review Queue")
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(.secondary)
-                                            .textCase(.uppercase)
-                                        Text(item.displayCode)
-                                            .font(.system(size: 38, weight: .black, design: .rounded))
-                                        Text(item.description)
-                                            .font(.title3.weight(.semibold))
+                    if let item = model.currentReviewItem {
+                        HStack(alignment: .top, spacing: 18) {
+                            CuratorPanel(tint: CuratorStage.quickReview.theme.accent) {
+                                VStack(alignment: .leading, spacing: 20) {
+                                    HStack(alignment: .top) {
+                                        VStack(alignment: .leading, spacing: 10) {
+                                            Text("Review Queue")
+                                                .font(.caption.weight(.semibold))
+                                                .foregroundStyle(.secondary)
+                                                .textCase(.uppercase)
+                                            Text(item.displayCode)
+                                                .font(.system(size: 38, weight: .black, design: .rounded))
+                                            Text(item.description)
+                                                .font(.title3.weight(.semibold))
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+                                        Spacer()
+                                        VStack(alignment: .trailing, spacing: 8) {
+                                            CapsuleBadge(text: "Unit: \(item.unit)", tint: CuratorStage.quickReview.theme.accent)
+                                            CapsuleBadge(text: "Sheet Row \(item.sourceRow)", tint: CuratorStage.quickReview.theme.secondaryAccent)
+                                        }
+                                    }
+
+                                    MetricStrip(
+                                        title: "Progress",
+                                        value: model.reviewProgressText,
+                                        tint: CuratorStage.quickReview.theme.secondaryAccent
+                                    )
+
+                                    DetailSurface(title: "Details", tint: CuratorStage.quickReview.theme.accent) {
+                                        Text(item.details.isEmpty ? "No details in source row." : item.details)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .textSelection(.enabled)
                                             .fixedSize(horizontal: false, vertical: true)
                                     }
-                                    Spacer()
-                                    VStack(alignment: .trailing, spacing: 8) {
-                                        CapsuleBadge(text: "Unit: \(item.unit)", tint: CuratorStage.quickReview.theme.accent)
-                                        CapsuleBadge(text: "Sheet Row \(item.sourceRow)", tint: CuratorStage.quickReview.theme.secondaryAccent)
-                                    }
+                                    .frame(minHeight: 250)
                                 }
-
-                                MetricStrip(
-                                    title: "Progress",
-                                    value: model.reviewProgressText,
-                                    tint: CuratorStage.quickReview.theme.secondaryAccent
-                                )
-
-                                DetailSurface(title: "Details", tint: CuratorStage.quickReview.theme.accent) {
-                                    Text(item.details.isEmpty ? "No details in source row." : item.details)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .textSelection(.enabled)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-
-                                HStack(spacing: 12) {
-                                    Button {
-                                        model.markCurrentReviewItem(as: .usedBefore)
-                                    } label: {
-                                        Label("Used Before", systemImage: "checkmark.circle.fill")
-                                    }
-                                    .buttonStyle(.borderedProminent)
-                                    .controlSize(.large)
-
-                                    Button {
-                                        model.markCurrentReviewItem(as: .neverUsed)
-                                    } label: {
-                                        Label("Never Used", systemImage: "xmark.circle")
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.large)
-
-                                    Button {
-                                        model.skipCurrentReviewItem()
-                                    } label: {
-                                        Label("Skip", systemImage: "arrowshape.turn.up.right")
-                                    }
-                                    .buttonStyle(.bordered)
-                                    .controlSize(.large)
-                                }
+                                .frame(maxWidth: .infinity, minHeight: 480, alignment: .topLeading)
                             }
-                        }
 
+                            CuratorPanel(tint: CuratorStage.quickReview.theme.secondaryAccent) {
+                                VStack(alignment: .leading, spacing: 18) {
+                                    PanelHeader(
+                                        eyebrow: "Keyboard Rhythm",
+                                        title: "Stay in flow",
+                                        subtitle: "The action dock stays pinned below, so your mouse can keep landing in the same place."
+                                    )
+
+                                    VStack(alignment: .leading, spacing: 12) {
+                                        ShortcutBadge(key: "Space", action: "Used Before", tint: CuratorStage.quickReview.theme.accent)
+                                        ShortcutBadge(key: "N", action: "Never Used", tint: CuratorStage.quickReview.theme.secondaryAccent)
+                                        ShortcutBadge(key: "S", action: "Skip for now", tint: CuratorStage.quickReview.theme.accent)
+                                    }
+
+                                    Divider()
+
+                                    VStack(alignment: .leading, spacing: 10) {
+                                        Text("Decision rule")
+                                            .font(.headline)
+                                        Text("If you’ve used the item in the real world, keep it moving into your working set. If it’s irrelevant to your workflow, cut it here and save the deeper thinking for stage 3.")
+                                            .foregroundStyle(.secondary)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 480, alignment: .topLeading)
+                            }
+                            .frame(minWidth: 280, maxWidth: 320)
+                        }
+                    } else {
                         CuratorPanel(tint: CuratorStage.quickReview.theme.secondaryAccent) {
-                            VStack(alignment: .leading, spacing: 18) {
-                                PanelHeader(
-                                    eyebrow: "Keyboard Rhythm",
-                                    title: "Stay in flow",
-                                    subtitle: "This screen is optimized for fast yes / no decisions while keeping the item context visible."
-                                )
-
-                                VStack(alignment: .leading, spacing: 12) {
-                                    ShortcutBadge(key: "Space", action: "Used Before", tint: CuratorStage.quickReview.theme.accent)
-                                    ShortcutBadge(key: "N", action: "Never Used", tint: CuratorStage.quickReview.theme.secondaryAccent)
-                                    ShortcutBadge(key: "S", action: "Skip for now", tint: CuratorStage.quickReview.theme.accent)
-                                }
-
-                                Divider()
-
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Text("Decision rule")
-                                        .font(.headline)
-                                    Text("If you’ve used the item in the real world, keep it moving into your working set. If it’s irrelevant to your workflow, cut it here and save the deeper thinking for stage 3.")
-                                        .foregroundStyle(.secondary)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                            }
+                            ContentUnavailableView(
+                                "Quick review is caught up",
+                                systemImage: "checkmark.circle",
+                                description: Text("There are no unreviewed items left right now.")
+                            )
+                            .frame(maxWidth: .infinity, minHeight: 300)
                         }
-                        .frame(minWidth: 280, maxWidth: 320)
-                    }
-                } else {
-                    CuratorPanel(tint: CuratorStage.quickReview.theme.secondaryAccent) {
-                        ContentUnavailableView(
-                            "Quick review is caught up",
-                            systemImage: "checkmark.circle",
-                            description: Text("There are no unreviewed items left right now.")
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 300)
                     }
                 }
+                .padding(.bottom, 8)
             }
-            .padding(.bottom, 8)
+            .scrollIndicators(.hidden)
+
+            if model.currentReviewItem != nil {
+                QuickReviewActionDock(
+                    tint: CuratorStage.quickReview.theme.accent,
+                    secondaryTint: CuratorStage.quickReview.theme.secondaryAccent,
+                    onUsedBefore: { model.markCurrentReviewItem(as: .usedBefore) },
+                    onNeverUsed: { model.markCurrentReviewItem(as: .neverUsed) },
+                    onSkip: { model.skipCurrentReviewItem() }
+                )
+            }
         }
-        .scrollIndicators(.hidden)
     }
 }
 
@@ -1327,6 +1316,73 @@ private struct RecommendationCandidateCard: View {
         )
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .onTapGesture(perform: onSelect)
+    }
+}
+
+private struct QuickReviewActionDock: View {
+    let tint: Color
+    let secondaryTint: Color
+    let onUsedBefore: () -> Void
+    let onNeverUsed: () -> Void
+    let onSkip: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Action Dock")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                Text("Pinned review controls")
+                    .font(.system(.title3, design: .rounded, weight: .bold))
+            }
+
+            Spacer()
+
+            HStack(spacing: 12) {
+                Button {
+                    onUsedBefore()
+                } label: {
+                    Label("Used Before", systemImage: "checkmark.circle.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                Button {
+                    onNeverUsed()
+                } label: {
+                    Label("Never Used", systemImage: "xmark.circle")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+
+                Button {
+                    onSkip()
+                } label: {
+                    Label("Skip", systemImage: "arrowshape.turn.up.right")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 18)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [tint.opacity(0.24), secondaryTint.opacity(0.18)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ),
+                    lineWidth: 1
+                )
+        )
+        .shadow(color: tint.opacity(0.12), radius: 18, y: 8)
     }
 }
 
