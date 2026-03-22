@@ -173,6 +173,7 @@ class EstimateScopeItem:
     damage_type: str = ""
     keywords: str = ""
     quantity: str = ""
+    activity: str = ""
     note: str = ""
     approved_code: str = ""
     allow_auto_approve: bool = True
@@ -194,6 +195,7 @@ class EstimateScopeItem:
             damage_type=_first_present(raw, "damage_type", "damageType"),
             keywords=_first_present(raw, "keywords"),
             quantity=format_quantity(raw.get("quantity")),
+            activity=_first_present(raw, "activity").upper(),
             note=_first_present(raw, "note"),
             approved_code=_first_present(raw, "approved_code", "approvedCode").upper(),
             allow_auto_approve=_as_bool(raw.get("allow_auto_approve", raw.get("allowAutoApprove", True)), True),
@@ -211,6 +213,7 @@ class EstimateScopeItem:
             "damage_type": self.damage_type,
             "keywords": self.keywords,
             "quantity": self.quantity,
+            "activity": self.activity,
             "note": self.note,
             "approved_code": self.approved_code,
             "allow_auto_approve": self.allow_auto_approve,

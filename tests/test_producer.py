@@ -339,6 +339,30 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(compiled.commands[1].text, "Ceiling")
         self.assertEqual(compiled.commands[3].key, "F6")
 
+    def test_activity_round_trips_from_draft_to_compiler_metadata(self) -> None:
+        draft = EstimateDraft.create("claim-activity", "default")
+        draft = draft.add_item(
+            DraftLineItem.create(
+                room="Bedroom",
+                section="Trim",
+                approved_code="DRY/PCH",
+                description="Drywall patch item carrying explicit activity",
+                quantity="PF",
+                activity="R",
+                surface="Trim",
+                damage_type="Detach and reset",
+                keywords="activity roundtrip",
+            )
+        )
+
+        job = draft.to_estimate_job()
+        self.assertEqual(job.items[1].activity, "R")
+
+        service = ProducerService(self.config, FakeRuntimeClient())
+        compiled = service.compile_job(job, starting_seq=10)
+        line_command = next(command for command in compiled.commands if command.kind == "text" and command.text == "DRY/PCH")
+        self.assertEqual(line_command.metadata["line_activity"], "R")
+
     def test_api_endpoints(self) -> None:
         service = ProducerService(self.config, FakeRuntimeClient(), FakePublisher())
         drafts = DraftCoordinator(
@@ -476,6 +500,7 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(defaults_tool["parameters"]["properties"]["topic"]["type"], ["string", "null"])
         self.assertEqual(defaults_tool["parameters"]["properties"]["room_scope"]["type"], ["boolean", "null"])
         self.assertIn("room-variable", defaults_tool["description"])
+        self.assertIn("activity field", agent._system_prompt())
 
     def test_openai_agent_uses_stored_responses_for_tool_loops(self) -> None:
         agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())

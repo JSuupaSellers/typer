@@ -341,6 +341,8 @@ class OpenAIDraftAgent:
             "Typical section names are Ceiling, Walls, Floors, then system-specific sections like Cabinetry, Plumbing, Electrical, or HVAC when they matter. "
             "The backend automatically inserts note separator rows from section titles, so your operations should focus on line items. "
             "Never invent CAT/SEL codes. Use get_estimating_defaults, search_line_items, explore_line_item_search, and get_line_item before adding any line item. "
+            "You are responsible for the final structured estimate JSON. "
+            "Tool results are advisory context so you can choose the right CAT/SEL, quantity expression, and activity in your output. "
             "For search_line_items, search one atomic scope item at a time. "
             "Do not send the whole user narrative into the tool. "
             "Convert each need into a short estimator-style query like 'seal water stain ceiling', "
@@ -352,10 +354,9 @@ class OpenAIDraftAgent:
             "If you want to compare different phrasings or tactics, call explore_line_item_search with 2-4 distinct strategies such as generic workflow, synonym variant, surface-first phrasing, or domain-specific phrasing. "
             "Important estimating defaults: PF means perimeter of floor. "
             "For room-wide trim like baseboard or chair rail, default quantity to PF unless the user gives partial footage or a deduction like PF-12. "
-            "For full-room baseboard detach and reset, prefer the explicit price-list selector FNC/BRS with quantity PF. "
-            "Use FNC/BRS> for multi-member baseboard, and FNC/BR only when it is reset-only because another trade already detached it. "
-            "If the user wants generic baseboard replacement and gives no size or material, default to FNC/B3 with quantity PF as the common paint-grade 3 1/4 inch assumption. "
-            "Our current backend stores explicit CAT/SEL codes and quantity text, not a separate activity-code field, so prefer explicit price-list selectors when they exist. "
+            "If the user's wording clearly implies an activity such as detach and reset, reset only, paint, or remove, set the activity field in your JSON. "
+            "If the user says 'detach and reset baseboard 3 1/4 inch', preserve that intent in your output instead of waiting for search results to spell it out. "
+            "Search is mainly to find the right CAT/SEL family and quantity basis. "
             "If the user asks what search returned, answer with the top returned CAT/SEL candidates and why they look right or wrong. "
             "Preserve existing accepted items unless the user clearly asks to remove or replace them. "
             "When the user corrects a room or section, use clear_section or remove_line_item before adding replacements. "
@@ -365,7 +366,7 @@ class OpenAIDraftAgent:
             "{\"op\":\"clear_section\",\"room\":\"Bedroom 1\",\"section\":\"Walls\"},"
             "{\"op\":\"remove_line_item\",\"room\":\"Bedroom 1\",\"section\":\"Ceiling\",\"approved_code\":\"DRY/PCH\"},"
             "{\"op\":\"add_line_item\",\"room\":\"Bedroom 1\",\"section\":\"Ceiling\",\"approved_code\":\"DRY/PCH\","
-            "\"description\":\"2x2 drywall patch\",\"quantity\":\"1\",\"surface\":\"Ceiling\",\"damage_type\":\"Patch\","
+            "\"description\":\"2x2 drywall patch\",\"quantity\":\"1\",\"activity\":\"R\",\"surface\":\"Ceiling\",\"damage_type\":\"Patch\","
             "\"keywords\":\"2x2 patch picture frame\",\"rationale\":\"why this code fits\"}"
             "]}"
         )
@@ -589,6 +590,7 @@ class OpenAIDraftAgent:
                     approved_code=approved_code,
                     description=str(raw.get("description", "")).strip(),
                     quantity=str(raw.get("quantity", "")).strip(),
+                    activity=str(raw.get("activity", "")).strip(),
                     surface=str(raw.get("surface", "")).strip(),
                     damage_type=str(raw.get("damage_type", "")).strip(),
                     keywords=str(raw.get("keywords", "")).strip(),

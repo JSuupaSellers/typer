@@ -95,6 +95,7 @@ class DraftLineItem:
     approved_code: str
     description: str
     quantity: str = ""
+    activity: str = ""
     surface: str = ""
     damage_type: str = ""
     keywords: str = ""
@@ -112,6 +113,7 @@ class DraftLineItem:
         approved_code: str,
         description: str,
         quantity: str = "",
+        activity: str = "",
         surface: str = "",
         damage_type: str = "",
         keywords: str = "",
@@ -126,6 +128,7 @@ class DraftLineItem:
             approved_code=_clean(approved_code).upper(),
             description=_clean(description),
             quantity=format_quantity(quantity),
+            activity=_clean(activity).upper(),
             surface=_clean(surface),
             damage_type=_clean(damage_type),
             keywords=_clean(keywords),
@@ -143,6 +146,7 @@ class DraftLineItem:
             approved_code=str(raw.get("approved_code", "")).strip().upper(),
             description=str(raw.get("description", "")).strip(),
             quantity=format_quantity(raw.get("quantity")),
+            activity=str(raw.get("activity", "")).strip().upper(),
             surface=str(raw.get("surface", "")).strip(),
             damage_type=str(raw.get("damage_type", "")).strip(),
             keywords=str(raw.get("keywords", "")).strip(),
@@ -160,6 +164,7 @@ class DraftLineItem:
             "approved_code": self.approved_code,
             "description": self.description,
             "quantity": self.quantity,
+            "activity": self.activity,
             "surface": self.surface,
             "damage_type": self.damage_type,
             "keywords": self.keywords,
@@ -236,6 +241,7 @@ class EstimateDraft:
                 and existing.section == item.section
                 and existing.approved_code == item.approved_code
                 and existing.quantity == item.quantity
+                and existing.activity == item.activity
             ),
             None,
         )
@@ -356,6 +362,7 @@ class EstimateDraft:
                     damage_type=item.damage_type,
                     keywords=item.keywords,
                     quantity=item.quantity,
+                    activity=item.activity,
                     approved_code=item.approved_code,
                 )
             )
@@ -367,7 +374,8 @@ class EstimateDraft:
         sections: list[str] = []
         for group in self.grouped_sections():
             item_lines = "\n".join(
-                f"- {item['approved_code']}: {item['description']} qty={item['quantity'] or '-'} status={item['status']}"
+                f"- {item['approved_code']}{(' activity=' + item['activity']) if item.get('activity') else ''}: "
+                f"{item['description']} qty={item['quantity'] or '-'} status={item['status']}"
                 for item in group["items"]
             )
             sections.append(f"{group['room']} / {group['section']}\n{item_lines}")
