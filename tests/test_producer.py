@@ -15,6 +15,7 @@ from xactimate_producer.models import (
     QueueSnapshot,
     RecommendationCandidate,
 )
+from xactimate_producer.openai_agent import OpenAIDraftAgent
 from xactimate_producer.service import ProducerReviewRequiredError, ProducerService
 
 
@@ -137,6 +138,11 @@ class FakePublisher:
 class FakeTranscriptionService:
     async def transcribe_audio(self, filename: str, content: bytes, prompt: str = "") -> str:
         return f"Transcript for {filename} ({len(content)} bytes)"
+
+
+class FailingAgent:
+    async def apply_turn(self, draft: EstimateDraft, user_text: str):
+        raise RuntimeError("Draft agent failed upstream.")
 
 
 class ProducerTests(unittest.TestCase):
@@ -375,6 +381,59 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual([entry["job_id"] for entry in listed], ["claim-chat", "claim-second"])
         self.assertEqual(listed[0]["message_count"], 4)
         self.assertEqual(listed[1]["bridge_id"], "field")
+
+    def test_openai_strict_tool_schema_marks_optional_fields_nullable(self) -> None:
+        agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())
+
+        search_tool = next(tool for tool in agent._tool_definitions() if tool["name"] == "search_line_items")
+        parameters = search_tool["parameters"]
+        self.assertEqual(
+            parameters["required"],
+            ["query", "room", "section", "surface", "damage_type", "keywords", "limit"],
+        )
+        self.assertEqual(parameters["properties"]["room"]["type"], ["string", "null"])
+        self.assertEqual(parameters["properties"]["limit"]["type"], ["integer", "null"])
+
+    def test_openai_agent_uses_stored_responses_for_tool_loops(self) -> None:
+        agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())
+
+        initial_payload = {
+            "model": self.config.agent_model,
+            "reasoning": {"effort": self.config.agent_reasoning_effort},
+            "input": [],
+            "tools": agent._tool_definitions(),
+            "tool_choice": "auto",
+            "store": True,
+            "max_output_tokens": 3000,
+        }
+        self.assertTrue(initial_payload["store"])
+
+    def test_chat_endpoint_surfaces_agent_failures(self) -> None:
+        service = ProducerService(self.config, FakeRuntimeClient(), FakePublisher())
+        drafts = DraftCoordinator(
+            DraftStore(self.config.draft_storage_dir),
+            service,
+            transcription_service=FakeTranscriptionService(),
+            agent=FailingAgent(),
+        )
+        client = TestClient(
+            create_app(
+                self.config,
+                service,
+                transcription_service=FakeTranscriptionService(),
+                draft_coordinator=drafts,
+            )
+        )
+
+        headers = {"X-API-Key": "producer-secret"}
+        response = client.post(
+            "/drafts/claim-chat/chat",
+            headers=headers,
+            json={"text": "Kitchen ceiling stain", "bridge_id": "default"},
+        )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.json()["detail"], "Draft agent failed upstream.")
 
 
 if __name__ == "__main__":

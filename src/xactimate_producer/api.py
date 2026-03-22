@@ -168,7 +168,10 @@ def create_app(
     ) -> dict[str, object]:
         bridge_id = str(payload.get("bridge_id", payload.get("bridgeId", "default"))).strip() or "default"
         text = str(payload.get("text", "")).strip()
-        result = await drafts.apply_text_turn(job_id, bridge_id, text)
+        try:
+            result = await drafts.apply_text_turn(job_id, bridge_id, text)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         return {
             "status": "ok",
             **result.to_dict(),
@@ -188,7 +191,10 @@ def create_app(
         content = await audio.read()
         if not content:
             raise HTTPException(status_code=400, detail="Audio upload was empty.")
-        result = await drafts.apply_voice_turn(job_id, bridge_id, audio.filename, content, text)
+        try:
+            result = await drafts.apply_voice_turn(job_id, bridge_id, audio.filename, content, text)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         return {
             "status": "ok",
             **result.to_dict(),

@@ -33,7 +33,7 @@ class OpenAIDraftAgent:
                 ],
                 "tools": self._tool_definitions(),
                 "tool_choice": "auto",
-                "store": False,
+                "store": True,
                 "max_output_tokens": 3000,
             }
         )
@@ -65,7 +65,7 @@ class OpenAIDraftAgent:
                     "input": tool_outputs,
                     "tools": self._tool_definitions(),
                     "tool_choice": "auto",
-                    "store": False,
+                    "store": True,
                     "max_output_tokens": 3000,
                 }
             )
@@ -104,14 +104,22 @@ class OpenAIDraftAgent:
                     "type": "object",
                     "properties": {
                         "query": {"type": "string"},
-                        "room": {"type": "string"},
-                        "section": {"type": "string"},
-                        "surface": {"type": "string"},
-                        "damage_type": {"type": "string"},
-                        "keywords": {"type": "string"},
-                        "limit": {"type": "integer"},
+                        "room": {"type": ["string", "null"]},
+                        "section": {"type": ["string", "null"]},
+                        "surface": {"type": ["string", "null"]},
+                        "damage_type": {"type": ["string", "null"]},
+                        "keywords": {"type": ["string", "null"]},
+                        "limit": {"type": ["integer", "null"]},
                     },
-                    "required": ["query"],
+                    "required": [
+                        "query",
+                        "room",
+                        "section",
+                        "surface",
+                        "damage_type",
+                        "keywords",
+                        "limit",
+                    ],
                     "additionalProperties": False,
                 },
             },
