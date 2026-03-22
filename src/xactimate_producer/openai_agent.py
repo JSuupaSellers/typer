@@ -84,8 +84,17 @@ class OpenAIDraftAgent:
             "Authorization": f"Bearer {self.config.openai_api_key.strip()}",
             "Content-Type": "application/json",
         }
-        async with httpx.AsyncClient(timeout=self.config.request_timeout_s) as client:
-            response = await client.post(endpoint, headers=headers, json=payload)
+        timeout_s = max(float(self.config.request_timeout_s), 90.0)
+        try:
+            async with httpx.AsyncClient(timeout=timeout_s) as client:
+                response = await client.post(endpoint, headers=headers, json=payload)
+        except httpx.TimeoutException as exc:
+            raise RuntimeError(
+                f"OpenAI draft agent timed out after {timeout_s:.0f}s while planning this claim. "
+                "Try breaking the scope into smaller room groups if it keeps happening."
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise RuntimeError(f"OpenAI draft agent request failed: {exc}") from exc
         if response.status_code < 200 or response.status_code >= 300:
             raise RuntimeError(f"OpenAI draft agent request failed with status {response.status_code}: {response.text}")
         data = response.json()

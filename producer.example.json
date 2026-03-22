@@ -7,7 +7,7 @@
   "transcription_model": "gpt-4o-transcribe",
   "agent_model": "gpt-5.4",
   "agent_reasoning_effort": "medium",
-  "request_timeout_s": 20.0,
+  "request_timeout_s": 90.0,
   "draft_storage_dir": "runtime/drafts",
   "firebase_credentials_path": "firebase-service-account.json",
   "firebase_database_url": "https://your-project-id.firebaseio.com",

@@ -15,6 +15,13 @@ enum BackendClientError: LocalizedError {
 }
 
 struct BackendClient {
+    private static let session: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 180
+        configuration.timeoutIntervalForResource = 300
+        return URLSession(configuration: configuration)
+    }()
+
     func listDrafts(
         configuration: BackendConfiguration
     ) async throws -> DraftListResponse {
@@ -172,7 +179,11 @@ struct BackendClient {
     }
 
     private func execute<T: Decodable>(_ request: URLRequest, as type: T.Type) async throws -> T {
-        let (data, response) = try await URLSession.shared.data(for: request)
+        var request = request
+        if request.timeoutInterval <= 0 {
+            request.timeoutInterval = 180
+        }
+        let (data, response) = try await Self.session.data(for: request)
         if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
             let body = String(decoding: data, as: UTF8.self)
             throw NSError(
