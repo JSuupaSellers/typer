@@ -21,6 +21,69 @@ The native macOS curator app lives separately under `apps/XactimateCatalogCurato
 
 Open [apps/XactimateCatalogCurator/README.md](/Users/joshuasellers/Documents/Development/App/Typer/apps/XactimateCatalogCurator/README.md) for the Mac app workflow and run instructions.
 
+## Runtime Search API
+
+Once you have curated your working set in the macOS app, export the catalog JSON and build a separate runtime database for the cloud agent to query. This keeps the Swift app as a one-time authoring tool and moves production lookup into a lightweight API service.
+
+### Build the runtime database
+
+```bash
+python -m xactimate_catalog_runtime import \
+  --export /path/to/xactimate-curated-export.json \
+  --db runtime/catalog.sqlite
+```
+
+### Serve the runtime API
+
+```bash
+python -m xactimate_catalog_runtime serve \
+  --db runtime/catalog.sqlite \
+  --host 0.0.0.0 \
+  --port 8787 \
+  --api-key your-secret-key
+```
+
+You can also use the console script:
+
+```bash
+xactimate-runtime serve --db runtime/catalog.sqlite --port 8787
+```
+
+### Query it directly
+
+```bash
+python -m xactimate_catalog_runtime search \
+  --db runtime/catalog.sqlite \
+  --query "2x2 ceiling patch that needs picture frame and paint" \
+  --room "Living room" \
+  --surface "Ceiling" \
+  --damage-type "Patch" \
+  --keywords "picture frame"
+```
+
+### API endpoints
+
+- `GET /health`: item and scenario counts for the loaded runtime database
+- `GET /items/{code}`: item details plus saved usage scenarios for a CAT/SEL code like `DRY/PCH`
+- `GET /items/{code}/scenarios`: scenarios only for a specific code
+- `POST /search`: freeform search over the curated catalog
+- `POST /recommend`: same ranking path, intended for AI-agent recommendation calls
+
+Example request body for `POST /recommend`:
+
+```json
+{
+  "query": "2x2 ceiling patch that needs picture frame and then ceiling painted",
+  "room": "Living room",
+  "surface": "Ceiling",
+  "damage_type": "Patch",
+  "keywords": "picture frame",
+  "limit": 5
+}
+```
+
+This service is where your cloud agent should search the curated catalog. Firebase remains only for the final execution queue that the Raspberry Pi bridge consumes.
+
 ## Command contract
 
 The producer should write immutable commands under the configured `firebase_commands_path`.
