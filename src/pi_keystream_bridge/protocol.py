@@ -19,7 +19,23 @@ def _extract_seq(key: str, payload: dict[str, Any]) -> int:
 
 
 def extract_commands(event_path: str, data: Any) -> list[KeyboardCommand]:
-    if data is None or not isinstance(data, dict):
+    if data is None:
+        return []
+    if isinstance(data, list):
+        commands: list[KeyboardCommand] = []
+        for index, payload in enumerate(data):
+            if not isinstance(payload, dict):
+                continue
+            seq = _extract_seq(str(index), payload)
+            if seq <= 0:
+                continue
+            try:
+                commands.append(KeyboardCommand.from_mapping(seq, payload))
+            except ValueError:
+                continue
+        commands.sort(key=lambda command: command.seq)
+        return commands
+    if not isinstance(data, dict):
         return []
     key_from_path = event_path.strip("/").split("/")[-1] if event_path else ""
     if key_from_path and (key_from_path.isdigit() or "seq" in data):
@@ -42,4 +58,3 @@ def extract_commands(event_path: str, data: Any) -> list[KeyboardCommand]:
             continue
     commands.sort(key=lambda command: command.seq)
     return commands
-

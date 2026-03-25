@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import time
-from typing import Any
 
 import serial
 
@@ -37,9 +35,9 @@ class SerialTransport:
         self.open()
         if self._serial is None:
             raise serial.SerialException("serial device is not available")
-        payload = command.to_serial_payload()
-        encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8") + b"\n"
-        self._serial.write(encoded)
+        for line in command.to_teensy_lines():
+            encoded = line.encode("utf-8") + b"\n"
+            self._serial.write(encoded)
         self._serial.flush()
         if command.delay_after_ms > 0:
             time.sleep(command.delay_after_ms / 1000.0)
@@ -52,4 +50,3 @@ class SerialTransport:
             return self._config.serial_port
         name = getattr(self._serial, "name", self._config.serial_port)
         return str(name)
-

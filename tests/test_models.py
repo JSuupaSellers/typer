@@ -28,6 +28,36 @@ class KeyboardCommandTests(unittest.TestCase):
         self.assertEqual(command.text, "Line item")
         self.assertEqual(command.delay_after_ms, 150)
 
+    def test_renders_teensy_protocol_lines(self) -> None:
+        combo = KeyboardCommand.from_mapping(
+            14,
+            {
+                "kind": "combo",
+                "key": "esc",
+                "modifiers": ["ctrl", "shift"],
+            },
+        )
+        self.assertEqual(combo.to_teensy_lines(), ("COMBO:CTRL+SHIFT+ESC",))
+
+        text = KeyboardCommand.from_mapping(
+            15,
+            {
+                "kind": "text",
+                "text": "hello world",
+                "repeat": 2,
+            },
+        )
+        self.assertEqual(text.to_teensy_lines(), ("TEXT:hello world", "TEXT:hello world"))
+
+    def test_supports_down_upall_and_raw(self) -> None:
+        down = KeyboardCommand.from_mapping(16, {"kind": "down", "key": "shift"})
+        upall = KeyboardCommand.from_mapping(17, {"kind": "upall"})
+        raw = KeyboardCommand.from_mapping(18, {"kind": "raw", "line": "KEY:F9"})
+
+        self.assertEqual(down.to_teensy_lines(), ("DOWN:SHIFT",))
+        self.assertEqual(upall.to_teensy_lines(), ("UPALL",))
+        self.assertEqual(raw.to_teensy_lines(), ("KEY:F9",))
+
     def test_extracts_sorted_commands_from_snapshot(self) -> None:
         commands = extract_commands(
             "/",
