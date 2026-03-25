@@ -10,6 +10,7 @@ from xactimate_producer.api import create_app
 from xactimate_producer.config import ProducerConfig
 from xactimate_producer.drafts import DraftCoordinator, DraftLineItem, DraftStore, EstimateDraft
 from xactimate_producer.direct_output import DirectComposeResult, DirectOutputService
+from xactimate_producer.estimate_export import EstimateExportService
 from xactimate_producer.models import (
     CatalogLineItem,
     EstimateJob,
@@ -849,6 +850,43 @@ class ProducerTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "offline or stale"):
             offline_service.publish_text(bridge_id="default", text="offline")
 
+    def test_estimate_export_compile_types_cat_sel_tab_quantity_then_enter(self) -> None:
+        service = EstimateExportService(self.config, FakePublisher())
+        rows = service.parse_rows(
+            [
+                {"cat_sel": "PNT/SP", "quantity": "2,2*2"},
+                {"cat_sel": "CLN/AV", "quantity": "12+4"},
+            ]
+        )
+
+        commands = service.compile_row_commands(rows=rows)
+
+        self.assertEqual(commands[0].kind, "upall")
+        keys = [command.key for command in commands[1:] if command.kind == "key"]
+        self.assertEqual(keys[:6], ["P", "N", "T", "/", "S", "P"])
+        self.assertIn("TAB", keys)
+        self.assertIn("ENTER", keys)
+        self.assertIn(",", keys)
+        self.assertIn("*", keys)
+        self.assertEqual(keys.count("ENTER"), 2)
+
+    def test_estimate_export_publish_rejects_busy_or_offline_bridge(self) -> None:
+        rows = ({"cat_sel": "PNT/SP", "quantity": "2,2*2"},)
+        busy_service = EstimateExportService(
+            self.config,
+            FakePublisher(last_applied_seq=10, max_published_seq=14, pending_command_count=4, bridge_ready=False),
+        )
+        offline_service = EstimateExportService(
+            self.config,
+            FakePublisher(bridge_online=False, bridge_ready=False),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "still busy"):
+            busy_service.publish_rows(bridge_id="default", rows=busy_service.parse_rows(list(rows)))
+
+        with self.assertRaisesRegex(RuntimeError, "offline or stale"):
+            offline_service.publish_rows(bridge_id="default", rows=offline_service.parse_rows(list(rows)))
+
     def test_direct_output_api_compose_and_publish(self) -> None:
         service = ProducerService(self.config, FakeRuntimeClient(), FakePublisher())
         client = TestClient(
@@ -857,6 +895,7 @@ class ProducerTests(unittest.TestCase):
                 service,
                 transcription_service=FakeTranscriptionService(),
                 direct_output_service=FakeDirectOutputService(),
+                estimate_export_service=EstimateExportService(self.config, FakePublisher()),
             )
         )
 
@@ -888,6 +927,24 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(publish.status_code, 200)
         self.assertEqual(publish.json()["publish"]["bridge_id"], "field")
         self.assertEqual(publish.json()["text"], "Hello there")
+
+        export_publish = client.post(
+            "/estimate-export/publish",
+            headers=headers,
+            json={
+                "bridge_id": "field",
+                "title": "Estimate Export",
+                "rows": [
+                    {"cat_sel": "PNT/SP", "quantity": "2,2*2"},
+                    {"cat_sel": "CLN/AV", "quantity": "12+4"},
+                ],
+            },
+        )
+        self.assertEqual(export_publish.status_code, 200)
+        self.assertEqual(export_publish.json()["publish"]["bridge_id"], "field")
+        self.assertEqual(export_publish.json()["row_count"], 2)
+        self.assertEqual(export_publish.json()["rows"][0]["cat_sel"], "PNT/SP")
+        self.assertEqual(export_publish.json()["rows"][0]["quantity"], "2,2*2")
 
 
 if __name__ == "__main__":

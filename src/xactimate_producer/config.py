@@ -142,6 +142,11 @@ class ProducerConfig:
     direct_output_long_text_threshold_chars: int = 280
     direct_output_line_break_delay_ms: int = 85
     direct_output_submit_delay_ms: int = 110
+    estimate_export_initial_delay_ms: int = 60
+    estimate_export_key_delay_ms: int = 28
+    estimate_export_formula_key_delay_ms: int = 36
+    estimate_export_tab_delay_ms: int = 120
+    estimate_export_row_advance_delay_ms: int = 185
     recommendation_limit: int = 5
     auto_approve_min_confidence: str = "high"
     workflow_profile: WorkflowProfile = field(default_factory=default_workflow_profile)
@@ -180,6 +185,17 @@ class ProducerConfig:
             ),
             direct_output_line_break_delay_ms=max(int(raw.get("direct_output_line_break_delay_ms", 85) or 85), 0),
             direct_output_submit_delay_ms=max(int(raw.get("direct_output_submit_delay_ms", 110) or 110), 0),
+            estimate_export_initial_delay_ms=max(int(raw.get("estimate_export_initial_delay_ms", 60) or 60), 0),
+            estimate_export_key_delay_ms=max(int(raw.get("estimate_export_key_delay_ms", 28) or 28), 0),
+            estimate_export_formula_key_delay_ms=max(
+                int(raw.get("estimate_export_formula_key_delay_ms", 36) or 36),
+                0,
+            ),
+            estimate_export_tab_delay_ms=max(int(raw.get("estimate_export_tab_delay_ms", 120) or 120), 0),
+            estimate_export_row_advance_delay_ms=max(
+                int(raw.get("estimate_export_row_advance_delay_ms", 185) or 185),
+                0,
+            ),
             recommendation_limit=max(int(raw.get("recommendation_limit", 5) or 5), 1),
             auto_approve_min_confidence=_normalize_confidence(str(raw.get("auto_approve_min_confidence", "high"))),
             workflow_profile=profile,

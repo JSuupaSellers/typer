@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request
 from .config import ProducerConfig
 from .drafts import DraftCoordinator
 from .direct_output import BridgeNotReadyError, DirectOutputService
+from .estimate_export import EstimateExportService
 from .models import EstimateJob
 from .service import ProducerReviewRequiredError, ProducerService
 from .transcription import (
@@ -22,6 +23,7 @@ def create_app(
     transcription_service: TranscriptionServiceProtocol | None = None,
     draft_coordinator: DraftCoordinator | None = None,
     direct_output_service: DirectOutputService | None = None,
+    estimate_export_service: EstimateExportService | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Xactimate Producer", version="0.1.0")
     app.state.config = config
@@ -29,6 +31,7 @@ def create_app(
     app.state.transcription_service = transcription_service
     app.state.draft_coordinator = draft_coordinator
     app.state.direct_output_service = direct_output_service
+    app.state.estimate_export_service = estimate_export_service
 
     @app.on_event("startup")
     async def startup_resume_operations() -> None:
@@ -53,6 +56,12 @@ def create_app(
         if direct is None:
             raise HTTPException(status_code=503, detail="Direct output is not configured.")
         return direct
+
+    def get_estimate_export_service(request: Request) -> EstimateExportService:
+        export = request.app.state.estimate_export_service
+        if export is None:
+            raise HTTPException(status_code=503, detail="Estimate export is not configured.")
+        return export
 
     def draft_payload(drafts: DraftCoordinator, job_id: str, draft) -> dict[str, Any]:
         return {
@@ -212,6 +221,29 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"status": "ok", **result.to_dict()}
+
+    @app.post("/estimate-export/publish")
+    def estimate_export_publish(
+        payload: dict,
+        _auth: None = Depends(authorize),
+        export: EstimateExportService = Depends(get_estimate_export_service),
+    ) -> dict[str, object]:
+        bridge_id = str(payload.get("bridge_id", payload.get("bridgeId", "default"))).strip() or "default"
+        title = str(payload.get("title", "")).strip()
+        try:
+            rows = export.parse_rows(payload.get("rows", []))
+            result = export.publish_rows(
+                bridge_id=bridge_id,
+                rows=rows,
+                title=title,
+            )
+        except BridgeNotReadyError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         return {"status": "ok", **result.to_dict()}

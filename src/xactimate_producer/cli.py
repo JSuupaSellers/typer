@@ -10,6 +10,7 @@ from .api import create_app
 from .config import ProducerConfig
 from .drafts import DraftCoordinator, DraftStore
 from .direct_output import DirectOutputService
+from .estimate_export import EstimateExportService
 from .models import EstimateJob
 from .openai_agent import OpenAIDraftAgent
 from .policy import PolicyEngine
@@ -91,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
                 transcription_service=transcription_service,
                 draft_coordinator=draft_coordinator,
                 direct_output_service=DirectOutputService(config, publisher),
+                estimate_export_service=EstimateExportService(config, publisher),
             )
             uvicorn.run(app, host=args.host, port=args.port)
         return 0

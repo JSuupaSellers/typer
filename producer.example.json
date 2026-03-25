@@ -21,6 +21,11 @@
   "direct_output_long_text_threshold_chars": 280,
   "direct_output_line_break_delay_ms": 85,
   "direct_output_submit_delay_ms": 110,
+  "estimate_export_initial_delay_ms": 60,
+  "estimate_export_key_delay_ms": 28,
+  "estimate_export_formula_key_delay_ms": 36,
+  "estimate_export_tab_delay_ms": 120,
+  "estimate_export_row_advance_delay_ms": 185,
   "recommendation_limit": 5,
   "auto_approve_min_confidence": "high",
   "workflow_profile": {
