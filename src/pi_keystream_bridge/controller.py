@@ -189,6 +189,14 @@ class BridgeController:
 
     def _heartbeat_loop(self) -> None:
         while not self._stop_event.wait(self._config.bridge_heartbeat_interval_s):
+            recovery = self._buffer.recover_stale_gap(self._config.missing_sequence_recovery_s)
+            if recovery is not None:
+                self.log(
+                    f"Recovered stale seq gap {recovery.skipped_from_seq}-{recovery.skipped_to_seq}; "
+                    f"resuming at {recovery.ready[0].seq if recovery.ready else self._buffer.next_seq}"
+                )
+                for command in recovery.ready:
+                    self._queue.put(command)
             self._publish_bridge_status()
 
     def _publish_bridge_status(

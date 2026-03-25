@@ -31,6 +31,7 @@ class AppConfig:
     ack_debounce_ms: int = 250
     bridge_heartbeat_interval_s: float = 2.0
     queue_cleanup_enabled: bool = True
+    missing_sequence_recovery_s: float = 4.0
 
     @classmethod
     def load(cls, path: Path) -> "AppConfig":
@@ -77,6 +78,8 @@ class AppConfig:
             errors.append("ack_debounce_ms cannot be negative")
         if self.bridge_heartbeat_interval_s <= 0:
             errors.append("bridge_heartbeat_interval_s must be positive")
+        if self.missing_sequence_recovery_s < 0:
+            errors.append("missing_sequence_recovery_s cannot be negative")
         credentials_path = Path(self.firebase_credentials_path)
         if self.firebase_credentials_path and not credentials_path.exists():
             errors.append(f"firebase_credentials_path does not exist: {credentials_path}")

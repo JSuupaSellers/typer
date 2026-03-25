@@ -64,10 +64,12 @@ class FirebaseCommandPublisher:
         last_applied_seq = _as_int(state_payload.get("last_applied_seq"))
         sequences = _sequence_values(commands_payload)
         max_published_seq = max(sequences, default=0)
-        pending_command_count = sum(1 for seq in sequences if seq > last_applied_seq)
+        observed_pending_command_count = sum(1 for seq in sequences if seq > last_applied_seq)
         producer_state = state_payload.get("producer", {}) if isinstance(state_payload, dict) else {}
         last_reserved_seq = _as_int(producer_state.get("last_reserved_seq"))
         bridge_state = state_payload.get("bridge", {}) if isinstance(state_payload, dict) else {}
+        bridge_buffered_commands = _as_int(bridge_state.get("buffered_commands", 0)) if isinstance(bridge_state, dict) else 0
+        bridge_reports_ready = bool(bridge_state.get("ready")) if isinstance(bridge_state, dict) else False
         bridge_last_seen_unix_s = float(bridge_state.get("last_seen_unix_s", 0.0) or 0.0)
         bridge_online = bool(
             isinstance(bridge_state, dict)
@@ -77,7 +79,15 @@ class FirebaseCommandPublisher:
             and bridge_last_seen_unix_s > 0
             and (time() - bridge_last_seen_unix_s) <= self._config.bridge_ready_stale_after_s
         )
-        bridge_ready = bridge_online and pending_command_count == 0
+        if bridge_online:
+            if bridge_reports_ready and bridge_buffered_commands == 0:
+                pending_command_count = 0
+            else:
+                pending_command_count = max(observed_pending_command_count, bridge_buffered_commands)
+            bridge_ready = bridge_reports_ready and bridge_buffered_commands == 0
+        else:
+            pending_command_count = observed_pending_command_count
+            bridge_ready = False
         next_seq = max(last_applied_seq, max_published_seq, last_reserved_seq) + 1
 
         return QueueSnapshot(
