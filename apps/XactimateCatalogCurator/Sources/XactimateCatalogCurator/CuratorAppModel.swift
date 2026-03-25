@@ -202,13 +202,14 @@ final class CuratorAppModel: ObservableObject {
               startWork(title: "Saving Usage Note", detail: "Writing the structured scenario into your catalog database.")
         else { return }
         defer { finishWork() }
-        let title = scenarioDraft.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let compactedDraft = UsageNoteCompactor.compact(scenarioDraft)
+        let title = compactedDraft.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else {
             lastError = "Give this usage note a short title."
             return
         }
         do {
-            let savedID = try store.saveUsageNote(for: selectedUsedItemID, draft: scenarioDraft)
+            let savedID = try store.saveUsageNote(for: selectedUsedItemID, draft: compactedDraft)
             try loadUsedItem(id: selectedUsedItemID)
             try refreshRecommendationsIfNeeded()
             selectedUsageNoteID = savedID

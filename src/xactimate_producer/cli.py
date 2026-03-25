@@ -9,12 +9,15 @@ import uvicorn
 from .api import create_app
 from .config import ProducerConfig
 from .drafts import DraftCoordinator, DraftStore
+from .direct_output import DirectOutputService
 from .models import EstimateJob
 from .openai_agent import OpenAIDraftAgent
+from .policy import PolicyEngine
 from .publisher import FirebaseCommandPublisher
 from .runtime_client import RuntimeCatalogClient
 from .service import ProducerReviewRequiredError, ProducerService
 from .transcription import OpenAITranscriptionService, TranscriptionConfig
+from .workflow_agents import ClaimOrchestratorAgent, RoomPlannerAgent, RoomVerifier
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     config = ProducerConfig.load(Path(args.config))
 
     if args.command == "serve":
-        errors = config.validate_for_publish()
+        errors = config.validate()
         if errors:
             raise ValueError("; ".join(errors))
         with RuntimeCatalogClient(
@@ -57,7 +60,10 @@ def main(argv: list[str] | None = None) -> int:
             api_key=config.runtime_api_key,
             timeout_s=config.request_timeout_s,
         ) as runtime_client:
-            publisher = FirebaseCommandPublisher(config)
+            publisher = None
+            publish_errors = config.validate_for_publish()
+            if not publish_errors:
+                publisher = FirebaseCommandPublisher(config)
             service = ProducerService(config, runtime_client, publisher)
             transcription_service = OpenAITranscriptionService(
                 TranscriptionConfig(
@@ -67,18 +73,24 @@ def main(argv: list[str] | None = None) -> int:
                     timeout_s=config.request_timeout_s,
                 )
             ) if config.openai_api_key.strip() else None
-            draft_agent = OpenAIDraftAgent(config, runtime_client) if config.openai_api_key.strip() else None
+            policy_engine = PolicyEngine(config.policy_path)
             draft_coordinator = DraftCoordinator(
                 DraftStore(config.draft_storage_dir),
                 service,
                 transcription_service=transcription_service,
-                agent=draft_agent,
+                agent=OpenAIDraftAgent(config, runtime_client) if config.openai_api_key.strip() else None,
+                orchestrator=ClaimOrchestratorAgent(config, policy_engine) if config.openai_api_key.strip() else None,
+                room_planner=RoomPlannerAgent(config, runtime_client, policy_engine) if config.openai_api_key.strip() else None,
+                room_verifier=RoomVerifier(policy_engine),
+                policy_engine=policy_engine,
             )
+            draft_coordinator._store.sync_policy_rules(policy_engine.to_rule_rows())
             app = create_app(
                 config,
                 service,
                 transcription_service=transcription_service,
                 draft_coordinator=draft_coordinator,
+                direct_output_service=DirectOutputService(config, publisher),
             )
             uvicorn.run(app, host=args.host, port=args.port)
         return 0

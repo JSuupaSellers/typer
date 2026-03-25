@@ -3,6 +3,7 @@ import Foundation
 enum BackendClientError: LocalizedError {
     case invalidBaseURL
     case invalidResponse
+    case missingRoute(String)
 
     var errorDescription: String? {
         switch self {
@@ -10,6 +11,8 @@ enum BackendClientError: LocalizedError {
             return "The backend URL is invalid."
         case .invalidResponse:
             return "The backend response could not be parsed."
+        case let .missingRoute(path):
+            return "The backend is missing \(path). Restart the laptop backend with the latest code."
         }
     }
 }
@@ -64,28 +67,43 @@ struct BackendClient {
         return try await execute(request, as: OpenDraftResponse.self)
     }
 
-    func sendChatTurn(
+    func sendDraftMessage(
         jobID: String,
         bridgeID: String,
         text: String,
         configuration: BackendConfiguration
-    ) async throws -> DraftTurnResponse {
+    ) async throws -> DraftOperationResponse {
         try await postJSON(
-            path: "drafts/\(jobID)/chat",
+            path: "drafts/\(jobID)/messages",
             payload: ["bridge_id": bridgeID, "text": text],
             configuration: configuration,
-            as: DraftTurnResponse.self
+            as: DraftOperationResponse.self
         )
     }
 
-    func sendVoiceTurn(
+    func fetchOperation(
+        operationID: String,
+        configuration: BackendConfiguration
+    ) async throws -> DraftOperationResponse {
+        guard let endpoint = URL(string: configuration.baseURL.trimmed)?.appending(path: "operations/\(operationID)") else {
+            throw BackendClientError.invalidBaseURL
+        }
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        if !configuration.apiKey.trimmed.isEmpty {
+            request.setValue(configuration.apiKey.trimmed, forHTTPHeaderField: "X-API-Key")
+        }
+        return try await execute(request, as: DraftOperationResponse.self)
+    }
+
+    func sendVoiceMessage(
         jobID: String,
         bridgeID: String,
         text: String,
         audioFileURL: URL,
         configuration: BackendConfiguration
-    ) async throws -> DraftTurnResponse {
-        guard let endpoint = URL(string: configuration.baseURL.trimmed)?.appending(path: "drafts/\(jobID)/voice-turn") else {
+    ) async throws -> DraftOperationResponse {
+        guard let endpoint = URL(string: configuration.baseURL.trimmed)?.appending(path: "drafts/\(jobID)/voice-messages") else {
             throw BackendClientError.invalidBaseURL
         }
 
@@ -106,7 +124,7 @@ struct BackendClient {
             request.setValue(configuration.apiKey.trimmed, forHTTPHeaderField: "X-API-Key")
         }
         request.httpBody = form.bodyData
-        return try await execute(request, as: DraftTurnResponse.self)
+        return try await execute(request, as: DraftOperationResponse.self)
     }
 
     func setDraftItemStatus(
@@ -159,6 +177,75 @@ struct BackendClient {
         )
     }
 
+    func composeDirectText(
+        bridgeID: String,
+        prompt: String,
+        configuration: BackendConfiguration
+    ) async throws -> DirectComposeResponse {
+        try await postJSON(
+            path: "direct/compose",
+            payload: ["bridge_id": bridgeID, "prompt": prompt],
+            configuration: configuration,
+            as: DirectComposeResponse.self
+        )
+    }
+
+    func composeDirectVoice(
+        bridgeID: String,
+        prompt: String,
+        audioFileURL: URL,
+        configuration: BackendConfiguration
+    ) async throws -> DirectComposeResponse {
+        guard let endpoint = URL(string: configuration.baseURL.trimmed)?.appending(path: "direct/voice-compose") else {
+            throw BackendClientError.invalidBaseURL
+        }
+
+        var form = MultipartFormData()
+        form.addField(named: "bridge_id", value: bridgeID)
+        form.addField(named: "prompt", value: prompt)
+        try form.addFile(
+            named: "audio",
+            filename: audioFileURL.lastPathComponent,
+            mimeType: mimeType(forAudioFileAt: audioFileURL),
+            fileURL: audioFileURL
+        )
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue(form.contentType, forHTTPHeaderField: "Content-Type")
+        if !configuration.apiKey.trimmed.isEmpty {
+            request.setValue(configuration.apiKey.trimmed, forHTTPHeaderField: "X-API-Key")
+        }
+        request.httpBody = form.bodyData
+        return try await execute(request, as: DirectComposeResponse.self)
+    }
+
+    func publishDirectText(
+        bridgeID: String,
+        title: String,
+        text: String,
+        sendEnter: Bool,
+        configuration: BackendConfiguration
+    ) async throws -> DirectPublishResponse {
+        struct DirectPublishRequest: Encodable {
+            let bridge_id: String
+            let title: String
+            let text: String
+            let send_enter: Bool
+        }
+        return try await postJSON(
+            path: "direct/publish",
+            payload: DirectPublishRequest(
+                bridge_id: bridgeID,
+                title: title,
+                text: text,
+                send_enter: sendEnter
+            ),
+            configuration: configuration,
+            as: DirectPublishResponse.self
+        )
+    }
+
     private func postJSON<T: Encodable, U: Decodable>(
         path: String,
         payload: T,
@@ -186,6 +273,9 @@ struct BackendClient {
         let (data, response) = try await Self.session.data(for: request)
         if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
             let body = String(decoding: data, as: UTF8.self)
+            if http.statusCode == 404, body.contains("\"detail\":\"Not Found\""), let path = request.url?.path {
+                throw BackendClientError.missingRoute(path)
+            }
             throw NSError(
                 domain: "BackendClient",
                 code: http.statusCode,

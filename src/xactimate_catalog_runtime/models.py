@@ -17,7 +17,6 @@ class CuratedUsageNote:
     damage_type: str
     keywords: str
     synonyms: str
-    voice_notes: str
     ai_hint: str
 
     @classmethod
@@ -32,7 +31,6 @@ class CuratedUsageNote:
             damage_type=str(raw.get("damageType", "")).strip(),
             keywords=str(raw.get("keywords", "")).strip(),
             synonyms=str(raw.get("synonyms", "")).strip(),
-            voice_notes=str(raw.get("voiceNotes", "")).strip(),
             ai_hint=str(raw.get("aiHint", "")).strip(),
         )
 
@@ -45,6 +43,7 @@ class CuratedExportItem:
     description: str
     unit: str
     details: str
+    usage_status: str
     usage_notes: tuple[CuratedUsageNote, ...]
 
     @classmethod
@@ -61,6 +60,7 @@ class CuratedExportItem:
             description=str(raw.get("description", "")).strip(),
             unit=str(raw.get("unit", "")).strip(),
             details=str(raw.get("details", "")).strip(),
+            usage_status=str(raw.get("usageStatus", "unreviewed")).strip().lower() or "unreviewed",
             usage_notes=usage_notes,
         )
 
@@ -125,7 +125,6 @@ class RuntimeScenario:
     damage_type: str
     keywords: str
     synonyms: str
-    voice_notes: str
     ai_hint: str
 
 
@@ -137,6 +136,7 @@ class RuntimeItem:
     description: str
     unit: str
     details: str
+    usage_status: str
 
 
 @dataclass(frozen=True)
@@ -167,4 +167,3 @@ class RecommendationCandidate:
 
 def normalize_code(code: str) -> str:
     return code.strip().upper()
-

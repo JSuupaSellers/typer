@@ -33,6 +33,7 @@ SCHEMA_STATEMENTS = [
         description TEXT NOT NULL,
         unit TEXT NOT NULL,
         details TEXT NOT NULL,
+        usage_status TEXT NOT NULL,
         searchable_text TEXT NOT NULL
     )
     """,
@@ -49,7 +50,6 @@ SCHEMA_STATEMENTS = [
         damage_type TEXT NOT NULL,
         keywords TEXT NOT NULL,
         synonyms TEXT NOT NULL,
-        voice_notes TEXT NOT NULL,
         ai_hint TEXT NOT NULL,
         searchable_text TEXT NOT NULL
     )
@@ -119,7 +119,7 @@ class RuntimeCatalogRepository:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT code, category, selector, description, unit, details
+                SELECT code, category, selector, description, unit, details, usage_status
                 FROM items
                 WHERE code = ?
                 """,
@@ -140,7 +140,7 @@ class RuntimeCatalogRepository:
             rows = connection.execute(
                 """
                 SELECT id, item_code, title, tags, when_to_use, when_not_to_use, room, surface,
-                       damage_type, keywords, synonyms, voice_notes, ai_hint
+                       damage_type, keywords, synonyms, ai_hint
                 FROM scenarios
                 WHERE item_code = ?
                 ORDER BY id ASC
@@ -162,7 +162,7 @@ class RuntimeCatalogRepository:
         with self._connect() as connection:
             item_rows = connection.execute(
                 f"""
-                SELECT code, category, selector, description, unit, details
+                SELECT code, category, selector, description, unit, details, usage_status
                 FROM items
                 WHERE code IN ({placeholders})
                 """,
@@ -172,7 +172,7 @@ class RuntimeCatalogRepository:
             scenario_rows = connection.execute(
                 f"""
                 SELECT id, item_code, title, tags, when_to_use, when_not_to_use, room, surface,
-                       damage_type, keywords, synonyms, voice_notes, ai_hint
+                       damage_type, keywords, synonyms, ai_hint
                 FROM scenarios
                 WHERE item_code IN ({placeholders})
                 ORDER BY id ASC
@@ -196,7 +196,14 @@ class RuntimeCatalogRepository:
         ]
 
     def _candidate_codes(self, query: RecommendationQuery) -> list[str]:
-        tokens = SearchTokenizer.tokenize(query.combined_text)
+        tokens = SearchTokenizer.query_tokens(
+            query.query,
+            query.room,
+            query.surface,
+            query.damage_type,
+            query.keywords,
+        )
+        preferred_categories = SearchTokenizer.preferred_categories(tokens)
         with self._connect() as connection:
             if not tokens:
                 rows = connection.execute("SELECT code FROM items ORDER BY code ASC").fetchall()
@@ -242,6 +249,22 @@ class RuntimeCatalogRepository:
                         candidate_codes.append(row["item_code"])
                         seen.add(row["item_code"])
 
+            if preferred_categories:
+                placeholders = ", ".join("?" for _ in preferred_categories)
+                category_rows = connection.execute(
+                    f"""
+                    SELECT code
+                    FROM items
+                    WHERE category IN ({placeholders})
+                    ORDER BY code ASC
+                    """,
+                    tuple(sorted(preferred_categories)),
+                ).fetchall()
+                for row in category_rows:
+                    if row["code"] not in seen:
+                        candidate_codes.append(row["code"])
+                        seen.add(row["code"])
+
             if candidate_codes:
                 return candidate_codes
 
@@ -266,6 +289,7 @@ class RuntimeCatalogRepository:
             description=row["description"],
             unit=row["unit"],
             details=row["details"],
+            usage_status=row["usage_status"],
         )
 
     @staticmethod
@@ -282,7 +306,6 @@ class RuntimeCatalogRepository:
             damage_type=row["damage_type"],
             keywords=row["keywords"],
             synonyms=row["synonyms"],
-            voice_notes=row["voice_notes"],
             ai_hint=row["ai_hint"],
         )
 
@@ -321,6 +344,7 @@ def _load_export(connection: sqlite3.Connection, export: CuratedExportEnvelope) 
                     item.description,
                     item.unit,
                     item.details,
+                    item.usage_status,
                     searchable_item_text,
                 )
             )
@@ -339,7 +363,6 @@ def _load_export(connection: sqlite3.Connection, export: CuratedExportEnvelope) 
                         note.damage_type,
                         note.keywords,
                         note.synonyms,
-                        note.voice_notes,
                         note.ai_hint,
                     ]
                     if part
@@ -356,7 +379,6 @@ def _load_export(connection: sqlite3.Connection, export: CuratedExportEnvelope) 
                         note.damage_type,
                         note.keywords,
                         note.synonyms,
-                        note.voice_notes,
                         note.ai_hint,
                         searchable_scenario_text,
                     )
@@ -365,8 +387,8 @@ def _load_export(connection: sqlite3.Connection, export: CuratedExportEnvelope) 
 
         connection.executemany(
             """
-            INSERT INTO items (code, category, selector, description, unit, details, searchable_text)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO items (code, category, selector, description, unit, details, usage_status, searchable_text)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             item_rows,
         )
@@ -378,8 +400,8 @@ def _load_export(connection: sqlite3.Connection, export: CuratedExportEnvelope) 
             """
             INSERT INTO scenarios (
                 item_code, title, tags, when_to_use, when_not_to_use, room, surface,
-                damage_type, keywords, synonyms, voice_notes, ai_hint, searchable_text
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                damage_type, keywords, synonyms, ai_hint, searchable_text
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             scenario_rows,
         )

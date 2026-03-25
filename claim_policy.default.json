@@ -1,0 +1,142 @@
+{
+  "version": "2026-03-22",
+  "section_order": [
+    "Ceiling",
+    "Walls",
+    "Trim",
+    "Cabinetry",
+    "Floors",
+    "Plumbing",
+    "Electrical",
+    "HVAC",
+    "Contents",
+    "Miscellaneous"
+  ],
+  "section_aliases": {
+    "ceiling": "Ceiling",
+    "wall": "Walls",
+    "baseboard": "Trim",
+    "trim": "Trim",
+    "crown": "Trim",
+    "chair_rail": "Trim",
+    "casing": "Trim",
+    "cabinet": "Cabinetry",
+    "counter": "Cabinetry",
+    "floor": "Floors",
+    "carpet": "Floors",
+    "tile": "Floors",
+    "plumbing": "Plumbing",
+    "fixture": "Electrical",
+    "electrical": "Electrical",
+    "hvac": "HVAC",
+    "vent": "HVAC",
+    "register": "HVAC"
+  },
+  "component_defaults": [
+    {
+      "component": "wall",
+      "surface": "wall",
+      "intent": "clean",
+      "room_scope": true,
+      "preferred_codes": ["CLN/AV", "CLN/AV+", "CLN/AV-"],
+      "quantity": "W",
+      "section": "Walls",
+      "notes": "Generic room-scope wall cleaning should use the CLN/AV family."
+    },
+    {
+      "component": "ceiling",
+      "surface": "ceiling",
+      "intent": "clean",
+      "room_scope": true,
+      "preferred_codes": ["CLN/AV", "CLN/AV+", "CLN/AV-"],
+      "quantity": "C",
+      "section": "Ceiling",
+      "notes": "Generic room-scope ceiling cleaning should use the CLN/AV family unless a specialty ceiling surface is explicit."
+    },
+    {
+      "component": "baseboard",
+      "surface": "baseboard",
+      "intent": "clean",
+      "room_scope": true,
+      "preferred_codes": ["CLN/B", "CLN/B+"],
+      "quantity": "PF",
+      "section": "Trim",
+      "notes": "Room-wide baseboard cleaning should default to PF."
+    },
+    {
+      "component": "baseboard",
+      "surface": "baseboard",
+      "intent": "paint",
+      "room_scope": true,
+      "preferred_codes": ["PNT/B2"],
+      "quantity": "PF",
+      "section": "Trim",
+      "notes": "Room-wide baseboard paint typically uses PF and a two-coat finish."
+    },
+    {
+      "component": "baseboard",
+      "surface": "baseboard",
+      "intent": "detach_reset",
+      "room_scope": true,
+      "preferred_codes": ["FNC/BRS", "FNC/BRS>"],
+      "quantity": "PF",
+      "section": "Trim",
+      "notes": "Baseboard detach and reset should stay separate from paint."
+    }
+  ],
+  "fallback_rules": [
+    {
+      "component": "wall",
+      "surface": "wall",
+      "intent": "clean",
+      "preferred_codes": ["CLN/AV", "CLN/AV+", "CLN/AV-"],
+      "blocked_codes": ["CLN/STD", "CLN/STD+", "CLN/FW", "CLN/FRW", "CLN/ACW", "CLN/ACW+", "CLN/ACW-", "CLN/ACW>", "CLN/SCRNW"],
+      "blocked_terms": ["through wall", "heater", "foundation", "stud", "screen wall"],
+      "notes": "Finished wall cleaning should prefer CLN/AV and avoid specialty or structural wall cleaning items."
+    },
+    {
+      "component": "ceiling",
+      "surface": "ceiling",
+      "intent": "clean",
+      "preferred_codes": ["CLN/AV", "CLN/AV+", "CLN/AV-"],
+      "blocked_codes": ["CLN/FN", "CLN/FN+", "CLN/FN-", "CLN/FN<", "CLN/FN<+"],
+      "blocked_terms": ["fan", "light", "fixture", "medallion"],
+      "notes": "Generic ceiling cleaning should prefer CLN/AV unless a specialty ceiling texture or system is explicit."
+    },
+    {
+      "component": "baseboard",
+      "surface": "baseboard",
+      "intent": "clean",
+      "preferred_codes": ["CLN/B", "CLN/B+"],
+      "blocked_codes": ["CLN/BBH", "CLN/BBH+", "CLN/BBH-"],
+      "blocked_terms": ["heater"],
+      "notes": "Baseboard heater items are not generic baseboard cleaning fallbacks."
+    }
+  ],
+  "room_templates": [
+    {
+      "loss_type": "smoke",
+      "room_type": "generic",
+      "sections": ["Ceiling", "Walls", "Trim", "Floors", "Electrical", "HVAC", "Miscellaneous"],
+      "notes": "Smoke-loss drafting should usually check clean and paint coverage from ceiling to floor."
+    },
+    {
+      "loss_type": "water",
+      "room_type": "generic",
+      "sections": ["Ceiling", "Walls", "Trim", "Floors", "Miscellaneous"],
+      "notes": "Water-loss drafting should usually evaluate patch, seal, paint, and reset workflows."
+    },
+    {
+      "loss_type": "generic",
+      "room_type": "generic",
+      "sections": ["Ceiling", "Walls", "Trim", "Floors", "Miscellaneous"],
+      "notes": "Default room ordering is ceiling to floor."
+    },
+    {
+      "loss_type": "smoke",
+      "room_type": "kitchen",
+      "sections": ["Ceiling", "Walls", "Cabinetry", "Trim", "Floors", "Electrical", "Plumbing", "HVAC", "Miscellaneous"],
+      "notes": "Smoke-loss kitchens often need cabinetry, appliance access, and utility sections."
+    }
+  ]
+}

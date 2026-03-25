@@ -117,7 +117,8 @@ struct LLMCleaningService {
         guard let data = stripped.data(using: .utf8) else {
             throw LLMCleaningError.invalidResponse
         }
-        return try JSONDecoder().decode(CleanedUsageNoteResult.self, from: data)
+        let decoded = try JSONDecoder().decode(CleanedUsageNoteResult.self, from: data)
+        return UsageNoteCompactor.compact(decoded)
     }
 
     static func parseStructuredRecommendationQuery(from content: String) throws -> StructuredRecommendationQueryResult {

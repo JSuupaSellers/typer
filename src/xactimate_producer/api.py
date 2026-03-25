@@ -1,14 +1,19 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 
 from .config import ProducerConfig
 from .drafts import DraftCoordinator
+from .direct_output import DirectOutputService
 from .models import EstimateJob
 from .service import ProducerReviewRequiredError, ProducerService
-from .transcription import TranscriptionServiceProtocol, default_adjuster_prompt
+from .transcription import (
+    TranscriptionServiceProtocol,
+    default_adjuster_prompt,
+    default_direct_output_prompt,
+)
 
 
 def create_app(
@@ -16,12 +21,20 @@ def create_app(
     service: ProducerService,
     transcription_service: TranscriptionServiceProtocol | None = None,
     draft_coordinator: DraftCoordinator | None = None,
+    direct_output_service: DirectOutputService | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Xactimate Producer", version="0.1.0")
     app.state.config = config
     app.state.service = service
     app.state.transcription_service = transcription_service
     app.state.draft_coordinator = draft_coordinator
+    app.state.direct_output_service = direct_output_service
+
+    @app.on_event("startup")
+    async def startup_resume_operations() -> None:
+        coordinator = app.state.draft_coordinator
+        if coordinator is not None:
+            await coordinator.resume_pending_operations()
 
     def get_service(request: Request) -> ProducerService:
         return request.app.state.service
@@ -35,6 +48,21 @@ def create_app(
             raise HTTPException(status_code=503, detail="Draft coordination is not configured.")
         return coordinator
 
+    def get_direct_output_service(request: Request) -> DirectOutputService:
+        direct = request.app.state.direct_output_service
+        if direct is None:
+            raise HTTPException(status_code=503, detail="Direct output is not configured.")
+        return direct
+
+    def draft_payload(drafts: DraftCoordinator, job_id: str, draft) -> dict[str, Any]:
+        return {
+            "draft": draft.to_dict(),
+            "grouped_sections": draft.grouped_sections(),
+            "room_states": drafts.list_room_states(job_id),
+            "claim_status": drafts.claim_status(job_id),
+            "operations": drafts.list_operations(job_id, include_completed=False),
+        }
+
     def authorize(
         request: Request,
         x_api_key: Annotated[str | None, Header()] = None,
@@ -44,7 +72,7 @@ def create_app(
             raise HTTPException(status_code=401, detail="Invalid API key.")
 
     @app.get("/health")
-    def health(_auth: None = Depends(authorize), request: Request = None) -> dict[str, object]:
+    def health(request: Request, _auth: None = Depends(authorize)) -> dict[str, object]:
         runtime_url = request.app.state.config.runtime_api_base_url
         return {
             "status": "ok",
@@ -118,6 +146,74 @@ def create_app(
             "job": draft_job,
         }
 
+    @app.post("/direct/compose")
+    async def direct_compose(
+        payload: dict,
+        _auth: None = Depends(authorize),
+        direct: DirectOutputService = Depends(get_direct_output_service),
+    ) -> dict[str, object]:
+        prompt = str(payload.get("prompt", payload.get("text", ""))).strip()
+        bridge_id = str(payload.get("bridge_id", payload.get("bridgeId", "default"))).strip() or "default"
+        try:
+            result = await direct.compose(prompt=prompt, bridge_id=bridge_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"status": "ok", **result.to_dict()}
+
+    @app.post("/direct/voice-compose")
+    async def direct_voice_compose(
+        bridge_id: Annotated[str, Form()] = "default",
+        prompt: Annotated[str, Form()] = "",
+        audio: UploadFile | None = File(default=None),
+        _auth: None = Depends(authorize),
+        direct: DirectOutputService = Depends(get_direct_output_service),
+        transcription: TranscriptionServiceProtocol | None = Depends(get_transcription_service),
+    ) -> dict[str, object]:
+        if audio is None or not audio.filename:
+            raise HTTPException(status_code=400, detail="Audio is required for direct voice compose.")
+        content = await audio.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Audio upload was empty.")
+        if transcription is None:
+            raise HTTPException(status_code=503, detail="Audio transcription is not configured.")
+        transcript = await transcription.transcribe_audio(
+            audio.filename,
+            content,
+            prompt=default_direct_output_prompt(),
+        )
+        try:
+            result = await direct.compose(
+                prompt=prompt.strip(),
+                bridge_id=bridge_id.strip() or "default",
+                transcript=transcript,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"status": "ok", **result.to_dict()}
+
+    @app.post("/direct/publish")
+    def direct_publish(
+        payload: dict,
+        _auth: None = Depends(authorize),
+        direct: DirectOutputService = Depends(get_direct_output_service),
+    ) -> dict[str, object]:
+        bridge_id = str(payload.get("bridge_id", payload.get("bridgeId", "default"))).strip() or "default"
+        text = str(payload.get("text", "")).strip()
+        title = str(payload.get("title", "")).strip()
+        append_enter = bool(payload.get("send_enter", payload.get("append_enter", False)))
+        try:
+            result = direct.publish_text(
+                bridge_id=bridge_id,
+                text=text,
+                title=title,
+                append_enter=append_enter,
+            )
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        return {"status": "ok", **result.to_dict()}
+
     @app.post("/drafts/open")
     def open_draft(
         payload: dict,
@@ -127,11 +223,7 @@ def create_app(
         job_id = str(payload.get("job_id", payload.get("jobId", ""))).strip() or "job"
         bridge_id = str(payload.get("bridge_id", payload.get("bridgeId", "default"))).strip() or "default"
         draft = drafts.open_draft(job_id, bridge_id)
-        return {
-            "status": "ok",
-            "draft": draft.to_dict(),
-            "grouped_sections": draft.grouped_sections(),
-        }
+        return {"status": "ok", **draft_payload(drafts, draft.job_id, draft)}
 
     @app.get("/drafts")
     def list_drafts(
@@ -153,11 +245,34 @@ def create_app(
             draft = drafts.get_draft(job_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=f"Unknown draft job: {job_id}") from exc
-        return {
-            "status": "ok",
-            "draft": draft.to_dict(),
-            "grouped_sections": draft.grouped_sections(),
-        }
+        return {"status": "ok", **draft_payload(drafts, job_id, draft)}
+
+    @app.post("/drafts/{job_id}/messages")
+    async def create_message_operation(
+        job_id: str,
+        payload: dict,
+        _auth: None = Depends(authorize),
+        drafts: DraftCoordinator = Depends(get_draft_coordinator),
+    ) -> dict[str, object]:
+        bridge_id = str(payload.get("bridge_id", payload.get("bridgeId", "default"))).strip() or "default"
+        text = str(payload.get("text", "")).strip()
+        try:
+            result = await drafts.submit_text_operation(job_id, bridge_id, text)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"status": "ok", **result}
+
+    @app.get("/operations/{operation_id}")
+    def get_operation(
+        operation_id: str,
+        _auth: None = Depends(authorize),
+        drafts: DraftCoordinator = Depends(get_draft_coordinator),
+    ) -> dict[str, object]:
+        try:
+            result = drafts.get_operation(operation_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=f"Unknown operation: {operation_id}") from exc
+        return {"status": "ok", **result}
 
     @app.post("/drafts/{job_id}/chat")
     async def draft_chat(
@@ -176,6 +291,26 @@ def create_app(
             "status": "ok",
             **result.to_dict(),
         }
+
+    @app.post("/drafts/{job_id}/voice-messages")
+    async def create_voice_operation(
+        job_id: str,
+        bridge_id: Annotated[str, Form()] = "default",
+        text: Annotated[str, Form()] = "",
+        audio: UploadFile | None = File(default=None),
+        _auth: None = Depends(authorize),
+        drafts: DraftCoordinator = Depends(get_draft_coordinator),
+    ) -> dict[str, object]:
+        if audio is None or not audio.filename:
+            raise HTTPException(status_code=400, detail="Audio is required for a voice turn.")
+        content = await audio.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Audio upload was empty.")
+        try:
+            result = await drafts.submit_voice_operation(job_id, bridge_id, audio.filename, content, text)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"status": "ok", **result}
 
     @app.post("/drafts/{job_id}/voice-turn")
     async def draft_voice_turn(
@@ -212,11 +347,7 @@ def create_app(
             draft = drafts.set_item_status(job_id, item_id, str(payload.get("status", "accepted")))
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=f"Unknown draft job: {job_id}") from exc
-        return {
-            "status": "ok",
-            "draft": draft.to_dict(),
-            "grouped_sections": draft.grouped_sections(),
-        }
+        return {"status": "ok", **draft_payload(drafts, job_id, draft)}
 
     @app.post("/drafts/{job_id}/accept-all")
     def accept_all_draft_items(
@@ -228,11 +359,7 @@ def create_app(
             draft = drafts.accept_all(job_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=f"Unknown draft job: {job_id}") from exc
-        return {
-            "status": "ok",
-            "draft": draft.to_dict(),
-            "grouped_sections": draft.grouped_sections(),
-        }
+        return {"status": "ok", **draft_payload(drafts, job_id, draft)}
 
     @app.post("/drafts/{job_id}/plan")
     def plan_draft(

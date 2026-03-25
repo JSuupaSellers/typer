@@ -16,8 +16,9 @@ The app expects the producer API to be running with these endpoints:
 
 - `POST /drafts/open`
 - `GET /drafts/{job_id}`
-- `POST /drafts/{job_id}/chat`
-- `POST /drafts/{job_id}/voice-turn`
+- `POST /drafts/{job_id}/messages`
+- `POST /drafts/{job_id}/voice-messages`
+- `GET /operations/{operation_id}`
 - `POST /drafts/{job_id}/items/{item_id}/status`
 - `POST /drafts/{job_id}/accept-all`
 - `POST /drafts/{job_id}/plan`
@@ -32,8 +33,9 @@ To run the room draft workflow on the backend, configure the producer with:
 - `transcription_model`
 - `agent_model`
 - `draft_storage_dir`
+- `policy_path`
 
-The current app is chat-first. Voice turns are recorded locally, transcribed on the backend, and then passed into the same draft agent that handles typed messages.
+The current app is chat-first. Voice turns are recorded locally, transcribed on the backend, and then submitted into the durable claim workflow as async operations. The app polls the operation endpoint and keeps showing a thinking state while the backend works room by room.
 
 ## Generate the Xcode project
 

@@ -128,8 +128,9 @@ class ProducerConfig:
     transcription_model: str = "gpt-4o-transcribe"
     agent_model: str = "gpt-5.4"
     agent_reasoning_effort: str = "medium"
-    request_timeout_s: float = 180.0
+    request_timeout_s: float = 300.0
     draft_storage_dir: str = "runtime/drafts"
+    policy_path: str = "claim_policy.default.json"
     firebase_credentials_path: str = ""
     firebase_database_url: str = ""
     firebase_commands_path_template: str = "/bridges/{bridge_id}/commands"
@@ -151,8 +152,9 @@ class ProducerConfig:
             transcription_model=str(raw.get("transcription_model", "gpt-4o-transcribe")).strip() or "gpt-4o-transcribe",
             agent_model=str(raw.get("agent_model", "gpt-5.4")).strip() or "gpt-5.4",
             agent_reasoning_effort=str(raw.get("agent_reasoning_effort", "medium")).strip().lower() or "medium",
-            request_timeout_s=max(float(raw.get("request_timeout_s", 180.0) or 180.0), 1.0),
+            request_timeout_s=max(float(raw.get("request_timeout_s", 300.0) or 300.0), 1.0),
             draft_storage_dir=str(raw.get("draft_storage_dir", "runtime/drafts")).strip() or "runtime/drafts",
+            policy_path=str(raw.get("policy_path", "claim_policy.default.json")).strip() or "claim_policy.default.json",
             firebase_credentials_path=str(raw.get("firebase_credentials_path", "")).strip(),
             firebase_database_url=str(raw.get("firebase_database_url", "")).strip(),
             firebase_commands_path_template=_normalize_db_path_template(
@@ -187,6 +189,13 @@ class ProducerConfig:
                 if not Path(draft_storage_dir).is_absolute()
                 else draft_storage_dir
             )
+        policy_path = str(payload["policy_path"]).strip()
+        if policy_path:
+            payload["policy_path"] = (
+                str((base_dir / policy_path).resolve())
+                if not Path(policy_path).is_absolute()
+                else policy_path
+            )
         return ProducerConfig.from_dict(payload)
 
     def save(self, path: Path) -> None:
@@ -208,6 +217,10 @@ class ProducerConfig:
             errors.append("request_timeout_s must be positive")
         if not self.draft_storage_dir:
             errors.append("draft_storage_dir is required")
+        if not self.policy_path:
+            errors.append("policy_path is required")
+        elif not Path(self.policy_path).exists():
+            errors.append(f"policy_path does not exist: {self.policy_path}")
         if not self.firebase_commands_path_template:
             errors.append("firebase_commands_path_template is required")
         if not self.firebase_state_path_template:

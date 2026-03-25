@@ -3,7 +3,7 @@ import Testing
 @testable import XactimateCatalogCurator
 
 @Test
-func storeImportsRowsAndExportsUsedItems() throws {
+func storeImportsRowsAndExportsAllItems() throws {
     let tempDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent(UUID().uuidString, isDirectory: true)
     try FileManager.default.createDirectory(at: tempDirectory, withIntermediateDirectories: true)
@@ -63,9 +63,14 @@ func storeImportsRowsAndExportsUsedItems() throws {
         )
     )
     let export = try store.exportCuratedJSON()
-    #expect(export.itemCount == 1)
+    #expect(export.itemCount == 2)
     #expect(export.usageNoteCount == 1)
-    #expect(export.items.first?.code == "DRY/PCH" || export.items.first?.code == "PNT/SP")
+    #expect(export.items.contains(where: { $0.code == "DRY/PCH" || $0.code == "PNT/SP" }))
+    #expect(export.items.contains(where: { $0.usageStatus == UsageStatus.usedBefore.rawValue }))
+    #expect(export.items.contains(where: { $0.usageStatus == UsageStatus.unreviewed.rawValue }))
+
+    let exportJSON = String(decoding: try JSONEncoder().encode(export), as: UTF8.self)
+    #expect(!exportJSON.contains("voiceNotes"))
 }
 
 @Test

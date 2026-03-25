@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from xactimate_producer.api import create_app
 from xactimate_producer.config import ProducerConfig
 from xactimate_producer.drafts import DraftCoordinator, DraftLineItem, DraftStore, EstimateDraft
+from xactimate_producer.direct_output import DirectComposeResult, DirectOutputService
 from xactimate_producer.models import (
     CatalogLineItem,
     EstimateJob,
@@ -17,6 +18,7 @@ from xactimate_producer.models import (
     RecommendationCandidate,
 )
 from xactimate_producer.openai_agent import OpenAIDraftAgent
+from xactimate_producer.policy import PolicyEngine
 from xactimate_producer.service import ProducerReviewRequiredError, ProducerService
 
 
@@ -203,6 +205,20 @@ class FakePublisher:
             ),
         )
 
+    def publish_commands(self, *, bridge_id: str, job_id: str, commands, approved_codes=()) -> PublishResult:
+        rebased = tuple(command.rebased(self.snapshot(bridge_id).next_seq + index) for index, command in enumerate(commands))
+        self.published_job = rebased
+        return PublishResult(
+            job_id=job_id,
+            bridge_id=bridge_id,
+            command_count=len(rebased),
+            starting_seq=rebased[0].seq,
+            ending_seq=rebased[-1].seq,
+            commands_path=f"/bridges/{bridge_id}/commands",
+            state_path=f"/bridges/{bridge_id}/state",
+            approved_codes=tuple(approved_codes),
+        )
+
 
 class FakeTranscriptionService:
     async def transcribe_audio(self, filename: str, content: bytes, prompt: str = "") -> str:
@@ -212,6 +228,48 @@ class FakeTranscriptionService:
 class FailingAgent:
     async def apply_turn(self, draft: EstimateDraft, user_text: str):
         raise RuntimeError("Draft agent failed upstream.")
+
+
+class FakeDirectOutputService:
+    async def compose(self, *, prompt: str, bridge_id: str = "default", transcript: str = "") -> DirectComposeResult:
+        source = transcript.strip() or prompt.strip()
+        return DirectComposeResult(
+            bridge_id=bridge_id,
+            title="Direct Draft",
+            assistant_reply="Ready to type on the Pi.",
+            prompt=prompt.strip(),
+            transcript=transcript.strip(),
+            text=f"Typed: {source}",
+            send_enter=False,
+            command_count_preview=2,
+            character_count=len(f"Typed: {source}"),
+            line_count=1,
+            warnings=(),
+        )
+
+    def publish_text(self, *, bridge_id: str, text: str, title: str = "", append_enter: bool = False):
+        publisher = FakePublisher()
+        publish = publisher.publish_commands(
+            bridge_id=bridge_id,
+            job_id="direct-test",
+            commands=(
+                type("FakeCommand", (), {"rebased": lambda self, seq: type("Rebased", (), {"seq": seq})()})(),
+            ),
+        )
+        return type(
+            "Envelope",
+            (),
+            {
+                "to_dict": lambda self: {
+                    "publish": publish.to_dict(),
+                    "title": title or "Direct Draft",
+                    "text": text,
+                    "send_enter": append_enter,
+                    "character_count": len(text),
+                    "line_count": max(text.count("\n") + 1, 1),
+                }
+            },
+        )()
 
 
 class UnstructuredResponseAgent(OpenAIDraftAgent):
@@ -269,6 +327,14 @@ class ProducerTests(unittest.TestCase):
                 },
             ],
         }
+
+    def test_system_prompt_splits_clean_and_paint_intents(self) -> None:
+        agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())
+        prompt = agent._system_prompt()
+
+        self.assertIn("treat that as separate workflow intents", prompt)
+        self.assertIn("Do not let a paint or seal item satisfy a requested clean step", prompt)
+        self.assertIn("generic component cleaning terms", prompt)
 
     def test_plan_and_compile_generate_deterministic_commands(self) -> None:
         service = ProducerService(self.config, FakeRuntimeClient())
@@ -459,6 +525,8 @@ class ProducerTests(unittest.TestCase):
         )
         self.assertEqual(opened.status_code, 200)
         self.assertEqual(opened.json()["draft"]["job_id"], "claim-chat")
+        self.assertEqual(opened.json()["claim_status"], "new")
+        self.assertEqual(opened.json()["operations"], [])
 
         opened_second = client.post(
             "/drafts/open",
@@ -486,11 +554,31 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(voice_turn.status_code, 200)
         self.assertIn("Transcript for bedroom.m4a", voice_turn.json()["transcript"])
 
+        message_operation = client.post(
+            "/drafts/claim-chat/messages",
+            headers=headers,
+            json={"text": "Add hall bathroom note", "bridge_id": "default"},
+        )
+        self.assertEqual(message_operation.status_code, 200)
+        operation_id = message_operation.json()["operation"]["id"]
+        self.assertTrue(operation_id.startswith("op-"))
+        self.assertIn(message_operation.json()["operation"]["status"], {"queued", "running", "completed"})
+
+        waited_operation = asyncio.run(drafts.wait_for_operation(operation_id, timeout_s=1.0))
+        self.assertEqual(waited_operation["operation"]["status"], "completed")
+
+        fetched_operation = client.get(f"/operations/{operation_id}", headers=headers)
+        self.assertEqual(fetched_operation.status_code, 200)
+        self.assertEqual(fetched_operation.json()["operation"]["status"], "completed")
+        self.assertTrue(
+            any(message["role"] == "assistant" for message in fetched_operation.json()["draft"]["messages"])
+        )
+
         drafts_list = client.get("/drafts", headers=headers)
         self.assertEqual(drafts_list.status_code, 200)
         listed = drafts_list.json()["drafts"]
         self.assertEqual([entry["job_id"] for entry in listed], ["claim-chat", "claim-second"])
-        self.assertEqual(listed[0]["message_count"], 4)
+        self.assertEqual(listed[0]["message_count"], 6)
         self.assertEqual(listed[1]["bridge_id"], "field")
 
     def test_openai_strict_tool_schema_marks_optional_fields_nullable(self) -> None:
@@ -539,7 +627,7 @@ class ProducerTests(unittest.TestCase):
             "max_output_tokens": agent._response_max_output_tokens(),
         }
         self.assertTrue(initial_payload["store"])
-        self.assertEqual(initial_payload["max_output_tokens"], 20_000)
+        self.assertEqual(initial_payload["max_output_tokens"], 60_000)
 
     def test_search_tool_returns_search_request_context(self) -> None:
         agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())
@@ -627,6 +715,27 @@ class ProducerTests(unittest.TestCase):
         self.assertIn("FNC/BR", suggested_codes)
         self.assertTrue(any(entry.get("quantity") == "PF" for entry in result["suggestions"]))
 
+    def test_policy_engine_returns_expected_defaults_and_fallbacks(self) -> None:
+        policy = PolicyEngine(self.config.policy_path)
+
+        wall_clean = policy.default_for(component="walls", intent="clean", surface="wall", room_scope=True)
+        self.assertIsNotNone(wall_clean)
+        assert wall_clean is not None
+        self.assertEqual(wall_clean.preferred_codes[0], "CLN/AV")
+        self.assertEqual(wall_clean.quantity, "W")
+
+        baseboard_paint = policy.default_for(component="baseboard", intent="paint", surface="baseboard", room_scope=True)
+        self.assertIsNotNone(baseboard_paint)
+        assert baseboard_paint is not None
+        self.assertEqual(baseboard_paint.preferred_codes[0], "PNT/B2")
+        self.assertEqual(baseboard_paint.quantity, "PF")
+
+        wall_fallback = policy.fallback_for(component="wall", intent="clean", surface="wall")
+        self.assertIsNotNone(wall_fallback)
+        assert wall_fallback is not None
+        self.assertIn("CLN/STD", wall_fallback.blocked_codes)
+        self.assertIn("through wall", wall_fallback.blocked_terms)
+
     def test_chat_endpoint_surfaces_agent_failures(self) -> None:
         service = ProducerService(self.config, FakeRuntimeClient(), FakePublisher())
         drafts = DraftCoordinator(
@@ -671,6 +780,75 @@ class ProducerTests(unittest.TestCase):
             agent._incomplete_reason({"incomplete_details": {"reason": "max_output_tokens"}}),
             "max_output_tokens",
         )
+
+    def test_direct_output_compile_turns_multiline_text_into_text_and_enter_commands(self) -> None:
+        service = DirectOutputService(self.config, FakePublisher())
+
+        commands = service.compile_text_commands(
+            text="Hello there\n\nSecond paragraph",
+            append_enter=True,
+        )
+
+        self.assertEqual(commands[0].kind, "upall")
+        self.assertEqual(commands[1].kind, "text")
+        self.assertEqual(commands[1].text, "Hello there")
+        self.assertEqual(commands[2].kind, "key")
+        self.assertEqual(commands[2].key, "ENTER")
+        self.assertEqual(commands[3].kind, "key")
+        self.assertEqual(commands[3].key, "ENTER")
+        self.assertEqual(commands[4].kind, "text")
+        self.assertEqual(commands[4].text, "Second paragraph")
+        self.assertEqual(commands[-1].kind, "key")
+        self.assertEqual(commands[-1].key, "ENTER")
+
+    def test_direct_output_compile_chunks_long_lines_for_teensy_buffer_safety(self) -> None:
+        service = DirectOutputService(self.config, FakePublisher())
+
+        commands = service.compile_text_commands(text="A" * 600)
+        text_commands = [command for command in commands if command.kind == "text"]
+
+        self.assertGreater(len(text_commands), 1)
+        self.assertTrue(all(len(command.text) <= 240 for command in text_commands))
+
+    def test_direct_output_api_compose_and_publish(self) -> None:
+        service = ProducerService(self.config, FakeRuntimeClient(), FakePublisher())
+        client = TestClient(
+            create_app(
+                self.config,
+                service,
+                transcription_service=FakeTranscriptionService(),
+                direct_output_service=FakeDirectOutputService(),
+            )
+        )
+
+        headers = {"X-API-Key": "producer-secret"}
+
+        compose = client.post(
+            "/direct/compose",
+            headers=headers,
+            json={"bridge_id": "field", "prompt": "Draft me an email that says thanks for the update."},
+        )
+        self.assertEqual(compose.status_code, 200)
+        self.assertEqual(compose.json()["bridge_id"], "field")
+        self.assertIn("Typed:", compose.json()["text"])
+
+        voice = client.post(
+            "/direct/voice-compose",
+            headers=headers,
+            data={"bridge_id": "field", "prompt": "make it polite"},
+            files={"audio": ("note.m4a", b"audio-bytes", "audio/mp4")},
+        )
+        self.assertEqual(voice.status_code, 200)
+        self.assertIn("Transcript for note.m4a", voice.json()["transcript"])
+
+        publish = client.post(
+            "/direct/publish",
+            headers=headers,
+            json={"bridge_id": "field", "title": "Email", "text": "Hello there", "send_enter": False},
+        )
+        self.assertEqual(publish.status_code, 200)
+        self.assertEqual(publish.json()["publish"]["bridge_id"], "field")
+        self.assertEqual(publish.json()["text"], "Hello there")
 
 
 if __name__ == "__main__":

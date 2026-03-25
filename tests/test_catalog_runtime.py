@@ -14,8 +14,8 @@ from xactimate_catalog_runtime.repository import RuntimeCatalogRepository, build
 
 SAMPLE_EXPORT = {
     "exportedAt": "2026-03-22T12:00:00Z",
-    "itemCount": 3,
-    "usageNoteCount": 3,
+    "itemCount": 5,
+    "usageNoteCount": 2,
     "items": [
         {
             "code": "DRY/PCH",
@@ -24,6 +24,7 @@ SAMPLE_EXPORT = {
             "description": "Drywall patch 2x2",
             "unit": "EA",
             "details": "Patch small ceiling opening and prep for finish.",
+            "usageStatus": "used_before",
             "usageNotes": [
                 {
                     "title": "Ceiling patch before paint",
@@ -47,6 +48,7 @@ SAMPLE_EXPORT = {
             "description": "Paint ceiling",
             "unit": "SF",
             "details": "Paint and blend ceiling after repair.",
+            "usageStatus": "used_before",
             "usageNotes": [
                 {
                     "title": "Ceiling repaint after repair",
@@ -70,21 +72,28 @@ SAMPLE_EXPORT = {
             "description": "Paint wall",
             "unit": "SF",
             "details": "Paint an interior wall surface.",
-            "usageNotes": [
-                {
-                    "title": "Wall repaint",
-                    "tags": "wall,paint",
-                    "whenToUse": "Use for interior wall repaint scope.",
-                    "whenNotToUse": "Not for ceiling work.",
-                    "room": "Bedroom",
-                    "surface": "Wall",
-                    "damageType": "Paint",
-                    "keywords": "paint wall,wall repaint",
-                    "synonyms": "wall touch-up",
-                    "voiceNotes": "Wall paint only.",
-                    "aiHint": "Use when the damaged surface is a wall, not a ceiling.",
-                }
-            ],
+            "usageStatus": "unreviewed",
+            "usageNotes": [],
+        },
+        {
+            "code": "CLN/WAL",
+            "category": "CLN",
+            "selector": "WAL",
+            "description": "Clean finished wall surface",
+            "unit": "SF",
+            "details": "Clean interior painted wall surface with general cleaning chemistry.",
+            "usageStatus": "unreviewed",
+            "usageNotes": [],
+        },
+        {
+            "code": "CLN/ACW",
+            "category": "CLN",
+            "selector": "ACW",
+            "description": "Clean window-mount/through-wall AC unit",
+            "unit": "EA",
+            "details": "Clean through-wall AC unit including cover and accessible components.",
+            "usageStatus": "unreviewed",
+            "usageNotes": [],
         },
     ],
 }
@@ -104,12 +113,13 @@ class CatalogRuntimeTests(unittest.TestCase):
     def test_import_and_recommendation_ranking(self) -> None:
         repo = RuntimeCatalogRepository(self.db_path)
         health = repo.health()
-        self.assertEqual(health["item_count"], 3)
-        self.assertEqual(health["scenario_count"], 3)
+        self.assertEqual(health["item_count"], 5)
+        self.assertEqual(health["scenario_count"], 2)
 
         item_detail = repo.get_item_with_scenarios("dry/pch")
         self.assertIsNotNone(item_detail)
         self.assertEqual(item_detail["item"].code, "DRY/PCH")
+        self.assertEqual(item_detail["item"].usage_status, "used_before")
         self.assertEqual(len(item_detail["scenarios"]), 1)
 
         results = repo.search(
@@ -126,6 +136,34 @@ class CatalogRuntimeTests(unittest.TestCase):
         self.assertEqual(results[0].item.code, "DRY/PCH")
         self.assertIn("PNT/SP", [candidate.item.code for candidate in results])
 
+        wall_results = repo.search(
+            RecommendationQuery(
+                query="bedroom wall repaint",
+                room="Bedroom",
+                surface="Wall",
+                damage_type="Paint",
+                keywords="paint wall",
+                limit=5,
+            )
+        )
+        self.assertGreaterEqual(len(wall_results), 1)
+        self.assertIn("PNT/WL", [candidate.item.code for candidate in wall_results])
+
+        clean_wall_results = repo.search(
+            RecommendationQuery(
+                query="clean walls",
+                room="Bedroom",
+                surface="Wall",
+                damage_type="Clean",
+                keywords="wall clean",
+                limit=5,
+            )
+        )
+        self.assertGreaterEqual(len(clean_wall_results), 1)
+        self.assertEqual(clean_wall_results[0].item.code, "CLN/WAL")
+        ranked_codes = [candidate.item.code for candidate in clean_wall_results]
+        self.assertLess(ranked_codes.index("CLN/WAL"), ranked_codes.index("CLN/ACW"))
+
     def test_api_endpoints(self) -> None:
         client = TestClient(create_app(self.db_path, api_key="secret-key"))
 
@@ -134,16 +172,18 @@ class CatalogRuntimeTests(unittest.TestCase):
 
         health = client.get("/health", headers={"X-API-Key": "secret-key"})
         self.assertEqual(health.status_code, 200)
-        self.assertEqual(health.json()["item_count"], 3)
+        self.assertEqual(health.json()["item_count"], 5)
 
         item = client.get("/items/DRY/PCH", headers={"X-API-Key": "secret-key"})
         self.assertEqual(item.status_code, 200)
         self.assertEqual(item.json()["item"]["code"], "DRY/PCH")
+        self.assertEqual(item.json()["item"]["usage_status"], "used_before")
 
         scenarios = client.get("/items/DRY/PCH/scenarios", headers={"X-API-Key": "secret-key"})
         self.assertEqual(scenarios.status_code, 200)
         self.assertEqual(len(scenarios.json()), 1)
         self.assertEqual(scenarios.json()[0]["item_code"], "DRY/PCH")
+        self.assertNotIn("voice_notes", scenarios.json()[0])
 
         recommend = client.post(
             "/recommend",

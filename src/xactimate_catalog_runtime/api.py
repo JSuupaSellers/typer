@@ -31,7 +31,6 @@ class ScenarioResponse(BaseModel):
     damage_type: str
     keywords: str
     synonyms: str
-    voice_notes: str
     ai_hint: str
 
     @classmethod
@@ -48,7 +47,6 @@ class ScenarioResponse(BaseModel):
             damage_type=scenario.damage_type,
             keywords=scenario.keywords,
             synonyms=scenario.synonyms,
-            voice_notes=scenario.voice_notes,
             ai_hint=scenario.ai_hint,
         )
 
@@ -60,6 +58,7 @@ class ItemResponse(BaseModel):
     description: str
     unit: str
     details: str
+    usage_status: str
 
 
 class RecommendationHighlightResponse(BaseModel):

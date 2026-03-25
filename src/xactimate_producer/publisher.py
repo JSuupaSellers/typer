@@ -9,7 +9,7 @@ import firebase_admin
 from firebase_admin import credentials, db
 
 from .config import ProducerConfig
-from .models import CompiledJob, PublishResult, QueueSnapshot
+from .models import CompiledCommand, CompiledJob, PublishResult, QueueSnapshot
 
 
 def _as_int(value: Any) -> int:
@@ -89,39 +89,65 @@ class FirebaseCommandPublisher:
             reservation_ref.transaction(update)
         return reserved_start[0]
 
-    def publish(self, compiled_job: CompiledJob) -> PublishResult:
-        bridge_id = compiled_job.bridge_id
-        job_id = compiled_job.job_id
+    def publish_commands(
+        self,
+        *,
+        bridge_id: str,
+        job_id: str,
+        commands: tuple[CompiledCommand, ...],
+        approved_codes: tuple[str, ...] = (),
+    ) -> PublishResult:
+        if not commands:
+            raise ValueError("commands must not be empty")
+        snapshot = self.snapshot(bridge_id)
+        floor_seq = max(snapshot.last_applied_seq, snapshot.max_published_seq, snapshot.last_reserved_seq)
+        reserved_start = self.reserve_sequence_range(
+            bridge_id=bridge_id,
+            job_id=job_id,
+            command_count=len(commands),
+            floor_seq=floor_seq,
+        )
+        rebased_commands = tuple(command.rebased(reserved_start + index) for index, command in enumerate(commands))
         commands_path = self._config.commands_path(bridge_id)
         state_path = self._config.state_path(bridge_id)
-        payload = {str(command.seq): command.queue_payload() for command in compiled_job.commands}
+        payload = {str(command.seq): command.queue_payload() for command in rebased_commands}
 
         with self._session(bridge_id) as (commands_ref, state_ref):
             commands_ref.update(payload)
             state_ref.update(
                 {
                     "active_job_id": job_id,
-                    "last_published_seq": compiled_job.ending_seq,
+                    "last_published_seq": rebased_commands[-1].seq,
                     "last_published_at_unix_s": time(),
-                    "published_command_count": compiled_job.command_count,
-                    "published_from_seq": compiled_job.starting_seq,
-                    "published_to_seq": compiled_job.ending_seq,
+                    "published_command_count": len(rebased_commands),
+                    "published_from_seq": rebased_commands[0].seq,
+                    "published_to_seq": rebased_commands[-1].seq,
                 }
             )
 
+        return PublishResult(
+            job_id=job_id,
+            bridge_id=bridge_id,
+            command_count=len(rebased_commands),
+            starting_seq=rebased_commands[0].seq,
+            ending_seq=rebased_commands[-1].seq,
+            commands_path=commands_path,
+            state_path=state_path,
+            approved_codes=approved_codes,
+        )
+
+    def publish(self, compiled_job: CompiledJob) -> PublishResult:
+        bridge_id = compiled_job.bridge_id
+        job_id = compiled_job.job_id
         approved_codes = tuple(
             item.approved_candidate.item.code
             for item in compiled_job.plan.items
             if item.approved_candidate is not None
         )
-        return PublishResult(
-            job_id=job_id,
+        return self.publish_commands(
             bridge_id=bridge_id,
-            command_count=compiled_job.command_count,
-            starting_seq=compiled_job.starting_seq,
-            ending_seq=compiled_job.ending_seq,
-            commands_path=commands_path,
-            state_path=state_path,
+            job_id=job_id,
+            commands=compiled_job.commands,
             approved_codes=approved_codes,
         )
 
@@ -140,4 +166,3 @@ class FirebaseCommandPublisher:
             yield commands_ref, state_ref
         finally:
             firebase_admin.delete_app(app)
-

@@ -20,6 +20,13 @@
 	<string>1</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Capture room notes for backend transcription.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Connect to your laptop backend over local Wi-Fi while drafting claims in the field.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Select estimate photos to upload with the field note draft.</string>
 	<key>UILaunchScreen</key>

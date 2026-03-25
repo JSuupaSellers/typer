@@ -565,7 +565,7 @@ private struct RecommendationStageView: View {
                                     }
                                 }
 
-                                DetailSurface(title: "Saved scenarios", tint: CuratorStage.recommendations.theme.accent) {
+                                DetailSurface(title: "Saved scenarios & context", tint: CuratorStage.recommendations.theme.accent) {
                                     VStack(alignment: .leading, spacing: 10) {
                                         if candidate.highlights.isEmpty {
                                             Text("This item does not have a saved scenario yet, so the score came mostly from the item text and prior feedback.")
@@ -1016,57 +1016,84 @@ private struct UsageNotesStageView: View {
                                 .frame(minWidth: 250, idealWidth: 290)
 
                                 CuratorPanel(tint: CuratorStage.usageNotes.theme.secondaryAccent) {
-                                    VStack(alignment: .leading, spacing: 14) {
-                                        TextField("Note title", text: $model.scenarioDraft.title)
-                                            .textFieldStyle(.roundedBorder)
-                                        TextField("Tags", text: $model.scenarioDraft.tags)
-                                            .textFieldStyle(.roundedBorder)
+                                    VStack(alignment: .leading, spacing: 16) {
+                                        PanelHeader(
+                                            eyebrow: "Scenario Draft",
+                                            title: "Scenario & additional context",
+                                            subtitle: "Capture the core field use case first, then keep the transcript and guardrails that add nuance later."
+                                        )
 
-                                        HStack(spacing: 12) {
-                                            TextField("Room / area", text: $model.scenarioDraft.room)
-                                                .textFieldStyle(.roundedBorder)
-                                            TextField("Surface", text: $model.scenarioDraft.surface)
-                                                .textFieldStyle(.roundedBorder)
-                                            TextField("Damage / repair type", text: $model.scenarioDraft.damageType)
-                                                .textFieldStyle(.roundedBorder)
+                                        UsageDraftSection(
+                                            title: "Scenario",
+                                            subtitle: "Describe the main use case and the structured signals that should make this line item rise to the top.",
+                                            tint: CuratorStage.usageNotes.theme.secondaryAccent
+                                        ) {
+                                            VStack(alignment: .leading, spacing: 14) {
+                                                TextField("Note title", text: $model.scenarioDraft.title)
+                                                    .textFieldStyle(.roundedBorder)
+                                                TextField("Tags", text: $model.scenarioDraft.tags)
+                                                    .textFieldStyle(.roundedBorder)
+                                                SurfaceEditor(
+                                                    title: "Scenario summary",
+                                                    text: $model.scenarioDraft.cleanedDescription,
+                                                    tint: CuratorStage.usageNotes.theme.secondaryAccent,
+                                                    minHeight: 130
+                                                )
+
+                                                HStack(spacing: 12) {
+                                                    TextField("Room / area", text: $model.scenarioDraft.room)
+                                                        .textFieldStyle(.roundedBorder)
+                                                    TextField("Surface", text: $model.scenarioDraft.surface)
+                                                        .textFieldStyle(.roundedBorder)
+                                                    TextField("Damage / repair type", text: $model.scenarioDraft.damageType)
+                                                        .textFieldStyle(.roundedBorder)
+                                                }
+
+                                                TextField("Keywords", text: $model.scenarioDraft.keywords)
+                                                    .textFieldStyle(.roundedBorder)
+                                                TextField("Synonyms / shorthand", text: $model.scenarioDraft.synonyms)
+                                                    .textFieldStyle(.roundedBorder)
+                                            }
                                         }
 
-                                        TextField("Keywords", text: $model.scenarioDraft.keywords)
-                                            .textFieldStyle(.roundedBorder)
-                                        TextField("Synonyms / shorthand", text: $model.scenarioDraft.synonyms)
-                                            .textFieldStyle(.roundedBorder)
+                                        UsageDraftSection(
+                                            title: "Additional context",
+                                            subtitle: "Keep the raw transcript, exclusions, and AI-only guidance that support the scenario without replacing it.",
+                                            tint: CuratorStage.usageNotes.theme.accent
+                                        ) {
+                                            VStack(alignment: .leading, spacing: 14) {
+                                                HStack {
+                                                    Label(
+                                                        model.llmSettings.hasTranscriptionConfiguration ? "Transcription ready" : "Transcription not configured",
+                                                        systemImage: model.llmSettings.hasTranscriptionConfiguration ? "waveform.badge.mic" : "exclamationmark.triangle"
+                                                    )
+                                                    .foregroundStyle(model.llmSettings.hasTranscriptionConfiguration ? CuratorStage.usageNotes.theme.accent : .orange)
 
-                                        HStack {
-                                            Label(
-                                                model.llmSettings.hasTranscriptionConfiguration ? "Transcription ready" : "Transcription not configured",
-                                                systemImage: model.llmSettings.hasTranscriptionConfiguration ? "waveform.badge.mic" : "exclamationmark.triangle"
-                                            )
-                                            .foregroundStyle(model.llmSettings.hasTranscriptionConfiguration ? CuratorStage.usageNotes.theme.accent : .orange)
+                                                    Spacer()
 
-                                            Spacer()
+                                                    if model.isRecordingTranscript {
+                                                        Button("Stop & Transcribe") {
+                                                            model.toggleTranscriptRecording()
+                                                        }
+                                                        .buttonStyle(.borderedProminent)
+                                                    } else {
+                                                        Button("Record Transcript") {
+                                                            model.toggleTranscriptRecording()
+                                                        }
+                                                        .buttonStyle(.bordered)
+                                                    }
 
-                                            if model.isRecordingTranscript {
-                                                Button("Stop & Transcribe") {
-                                                    model.toggleTranscriptRecording()
+                                                    Button("Clean Transcript with LLM") {
+                                                        model.cleanTranscriptWithLLM()
+                                                    }
+                                                    .buttonStyle(.bordered)
                                                 }
-                                                .buttonStyle(.borderedProminent)
-                                            } else {
-                                                Button("Record Transcript") {
-                                                    model.toggleTranscriptRecording()
-                                                }
-                                                .buttonStyle(.bordered)
-                                            }
 
-                                            Button("Clean Transcript with LLM") {
-                                                model.cleanTranscriptWithLLM()
+                                                SurfaceEditor(title: "Raw voice transcript", text: $model.scenarioDraft.transcript, tint: CuratorStage.usageNotes.theme.accent)
+                                                SurfaceEditor(title: "When not to use", text: $model.scenarioDraft.whenNotToUse, tint: CuratorStage.usageNotes.theme.accent, minHeight: 110)
+                                                SurfaceEditor(title: "AI hint", text: $model.scenarioDraft.aiHint, tint: CuratorStage.usageNotes.theme.accent)
                                             }
-                                            .buttonStyle(.bordered)
                                         }
-
-                                        SurfaceEditor(title: "Raw voice transcript", text: $model.scenarioDraft.transcript, tint: CuratorStage.usageNotes.theme.accent)
-                                        SurfaceEditor(title: "Cleaned usage description", text: $model.scenarioDraft.cleanedDescription, tint: CuratorStage.usageNotes.theme.secondaryAccent)
-                                        SurfaceEditor(title: "When not to use", text: $model.scenarioDraft.whenNotToUse, tint: CuratorStage.usageNotes.theme.accent, minHeight: 110)
-                                        SurfaceEditor(title: "AI hint", text: $model.scenarioDraft.aiHint, tint: CuratorStage.usageNotes.theme.accent)
 
                                         HStack(spacing: 12) {
                                             Button("Save Note") {
@@ -1139,17 +1166,17 @@ private struct LLMSettingsSheet: View {
                             .textFieldStyle(.roundedBorder)
                         TextField("Transcription Model (use whisper-1 for Whisper)", text: $settings.transcriptionModel)
                             .textFieldStyle(.roundedBorder)
-                        TextField("Cleanup Model", text: $settings.cleanupModel)
+                        TextField("Cleanup Model (defaults to gpt-5.4)", text: $settings.cleanupModel)
                             .textFieldStyle(.roundedBorder)
 
                         InfoBadge(
                             title: "Model note",
-                            value: "As of March 21, 2026, Google exposes Gemini 3 series model IDs like gemini-3-flash-preview and gemini-3.1-flash-lite-preview, not a literal model id named gemini-3.0. This app defaults estimate-photo scanning to gemini-3-flash-preview and keeps OpenAI for Whisper transcription and cleanup.",
+                            value: "As of March 22, 2026, OpenAI's API docs list GPT-5.4 as the latest model family, so cleanup defaults to gpt-5.4. Estimate-photo scanning stays on gemini-3-flash-preview, and OpenAI handles transcription plus transcript compaction.",
                             tint: CuratorStage.usageNotes.theme.accent
                         )
 
                         SurfaceEditor(title: "Estimate Photo Prompt", text: $settings.estimatePhotoPrompt, tint: CuratorStage.usageNotes.theme.accent, minHeight: 150)
-                        SurfaceEditor(title: "System Prompt", text: $settings.systemPrompt, tint: CuratorStage.usageNotes.theme.secondaryAccent, minHeight: 200)
+                        SurfaceEditor(title: "Cleanup Prompt", text: $settings.systemPrompt, tint: CuratorStage.usageNotes.theme.secondaryAccent, minHeight: 220)
                         SurfaceEditor(title: "Recommendation Prompt", text: $settings.recommendationPrompt, tint: CuratorStage.recommendations.theme.accent, minHeight: 170)
 
                         HStack {
@@ -1448,18 +1475,27 @@ private struct RecommendationScenarioHighlightCard: View {
                 WrapTagCloud(terms: highlight.matchedTerms, tint: tint)
             }
 
-            if !highlight.whenNotToUse.isEmpty {
-                Text("Avoid when: \(highlight.whenNotToUse)")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            if !highlight.whenNotToUse.isEmpty || !highlight.aiHint.isEmpty {
+                Divider()
 
-            if !highlight.aiHint.isEmpty {
-                Text("AI hint: \(highlight.aiHint)")
-                    .font(.callout)
+                Text("Additional context")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .textCase(.uppercase)
+
+                if !highlight.whenNotToUse.isEmpty {
+                    Text("Avoid when: \(highlight.whenNotToUse)")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if !highlight.aiHint.isEmpty {
+                    Text("AI hint: \(highlight.aiHint)")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .padding(14)
@@ -1629,6 +1665,48 @@ private struct PanelHeader: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+private struct UsageDraftSection<Content: View>: View {
+    let title: String
+    let subtitle: String
+    let tint: Color
+    @ViewBuilder var content: Content
+
+    init(
+        title: String,
+        subtitle: String,
+        tint: Color,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.tint = tint
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.system(.headline, design: .rounded, weight: .semibold))
+                Text(subtitle)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            content
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(tint.opacity(0.08))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(tint.opacity(0.12), lineWidth: 1)
+        )
     }
 }
 

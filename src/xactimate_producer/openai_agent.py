@@ -95,7 +95,7 @@ class OpenAIDraftAgent:
             "Authorization": f"Bearer {self.config.openai_api_key.strip()}",
             "Content-Type": "application/json",
         }
-        timeout_s = max(float(self.config.request_timeout_s), 180.0)
+        timeout_s = max(float(self.config.request_timeout_s), 300.0)
         try:
             async with httpx.AsyncClient(timeout=timeout_s) as client:
                 response = await client.post(endpoint, headers=headers, json=payload)
@@ -354,7 +354,7 @@ class OpenAIDraftAgent:
         raise RuntimeError(f"Unknown tool call: {name}")
 
     def _response_max_output_tokens(self) -> int:
-        return 20_000
+        return 60_000
 
     def _incomplete_reason(self, response: dict[str, Any]) -> str:
         details = response.get("incomplete_details")
@@ -441,8 +441,14 @@ class OpenAIDraftAgent:
             "For search_line_items, search one atomic scope item at a time. "
             "Do not send the whole user narrative into the tool. "
             "Convert each need into a short estimator-style query like 'seal water stain ceiling', "
-            "'paint acoustic ceiling', 'paint wall', 'drywall patch 2x2', or 're-apply protective coating carpet'. "
+            "'paint acoustic ceiling', 'clean baseboard', 'clean trim', 'paint wall', 'drywall patch 2x2', or 're-apply protective coating carpet'. "
             "If the user describes multiple needs, make multiple search_line_items calls. "
+            "If the user says a component needs both cleaning and painting, treat that as separate workflow intents. "
+            "Search the clean intent separately from the paint or seal intent. "
+            "Do not let a paint or seal item satisfy a requested clean step, and do not let a clean item satisfy a requested paint step. "
+            "If clean-only support is weak or absent for a surface, say that clearly in your rationale instead of collapsing the clean intent into a paint line. "
+            "For broad interior wall or ceiling cleaning with no specialty surface called out, prefer the CLN/AV family as the generic clean fallback when search supports it. "
+            "For smoke or soot claims, search using generic component cleaning terms like 'clean baseboard', 'clean crown molding', 'clean door', or 'clean textured ceiling' unless the catalog clearly supports a more specific phrase. "
             "Before searching or adding room-wide trim, baseboard, chair rail, crown, or paint items, call get_estimating_defaults to choose the right room variable and baseline convention. "
             "Use room, section, surface, damage_type, and keywords fields to narrow the search instead of overloading query text. "
             "When a search returns weak or obviously wrong candidates, first try a narrower or more domain-specific query. "

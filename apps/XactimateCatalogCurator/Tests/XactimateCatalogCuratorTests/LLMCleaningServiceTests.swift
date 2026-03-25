@@ -9,7 +9,7 @@ func parsesPlainJSONObjectFromLLM() throws {
 
     let result = try LLMCleaningService.parseCleanedResult(from: content)
     #expect(result.title == "Ceiling paint after repair")
-    #expect(result.tags == "ceiling,paint")
+    #expect(result.tags == "ceiling, paint")
     #expect(result.cleanedDescription.contains("repaired ceiling"))
     #expect(result.surface == "Ceiling")
 }
@@ -40,4 +40,18 @@ func parsesStructuredRecommendationQueryFromLLM() throws {
     #expect(result.room == "Bedroom")
     #expect(result.surface == "Ceiling")
     #expect(result.damageType == "Patch and repaint")
+}
+
+@Test
+func compactsVerboseJSONObjectFromLLM() throws {
+    let content = """
+    {"title":"Ceiling repair repaint after localized drywall opening and picture frame texture blending","tags":"ceiling, paint, drywall, repair, extra tag","cleaned_description":"Use this when a localized ceiling opening has been patched, textured, and now needs concise repaint guidance for the estimator to carry forward without extra narrative.","when_not_to_use":"Do not use this when the whole ceiling is being torn out and replaced or when the scope is really wall-only paint work.","room":"Large upstairs living room area","surface":"Textured painted ceiling surface","damage_type":"Localized drywall patch with repaint and texture blend","keywords":"2x2 patch,picture frame,ceiling paint,localized opening,texture blend,repair,extra","synonyms":"paint ceiling after patch,ceiling blend,localized ceiling repair repaint,another synonym,extra synonym","ai_hint":"Choose this when the scope is a small repaired ceiling area that still needs texture and paint, but avoid long explanations."}
+    """
+
+    let result = try LLMCleaningService.parseCleanedResult(from: content)
+    #expect(result.title == "Ceiling repair repaint after localized drywall")
+    #expect(result.tags == "ceiling, paint, drywall, repair")
+    #expect(result.keywords == "2x2 patch, picture frame, ceiling paint, localized opening, texture blend, repair")
+    #expect(result.synonyms == "paint ceiling after patch, ceiling blend, localized ceiling repair repaint, another synonym")
+    #expect(result.aiHint.count <= 120)
 }

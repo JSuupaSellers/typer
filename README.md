@@ -109,6 +109,7 @@ Fill in:
 - `transcription_model` if you want to override the default `gpt-4o-transcribe`
 - `agent_model` if you want a different OpenAI orchestrator model than the default `gpt-5.4`
 - `draft_storage_dir` for persisted room-by-room claim drafts
+- `policy_path` for the versioned estimating policy artifact that powers defaults and fallback rules
 - `firebase_credentials_path`
 - `firebase_database_url`
 - `firebase_commands_path_template`
@@ -193,8 +194,9 @@ Endpoints:
 - `POST /capture/intake`
 - `POST /drafts/open`
 - `GET /drafts/{job_id}`
-- `POST /drafts/{job_id}/chat`
-- `POST /drafts/{job_id}/voice-turn`
+- `POST /drafts/{job_id}/messages`
+- `POST /drafts/{job_id}/voice-messages`
+- `GET /operations/{operation_id}`
 - `POST /drafts/{job_id}/items/{item_id}/status`
 - `POST /drafts/{job_id}/accept-all`
 - `POST /drafts/{job_id}/plan`
@@ -206,10 +208,20 @@ Endpoints:
 `POST /drafts/*` is the new room-by-room claim workflow for the mobile app:
 
 - open a persistent draft job
-- send text turns or voice turns
-- let the backend orchestrator search the curated catalog
+- submit text turns or voice turns as async operations
+- poll the operation status while the backend orchestrator works room by room
+- let the backend orchestrator, room planner, verifier, and policy engine search the curated catalog
 - review accepted vs rejected line items grouped by room and section
 - plan or publish the accepted draft to the Pi pipeline
+
+The durable claim workflow is SQL-backed and room-scoped. `GET /drafts/{job_id}` remains the claim source of truth, while `GET /operations/{operation_id}` exposes progress, events, tool traces, and partial draft state for long-running turns.
+
+Compatibility note:
+
+- `POST /drafts/{job_id}/chat`
+- `POST /drafts/{job_id}/voice-turn`
+
+still exist as synchronous wrappers, but the iPhone app now uses the async operation endpoints.
 
 When the draft is converted into an execution job, the producer automatically inserts section note rows ahead of each room section and compiles them through the `note_item` profile. That is where `Ceiling`, `Walls`, `Floors`, and similar separators become `F9` note entries for Xactimate.
 
@@ -340,26 +352,33 @@ Supported command kinds:
 - `combo`: key plus modifiers, ex. `{"seq": 6, "kind": "combo", "key": "S", "modifiers": ["CTRL"]}`
 - `text`: literal text payload for the Teensy firmware, ex. `{"seq": 7, "kind": "text", "text": "Line item"}`
 - `delay`: local wait on the Pi, ex. `{"seq": 8, "kind": "delay", "duration_ms": 450}`
+- `down`: hold a modifier or special key, ex. `{"seq": 9, "kind": "down", "key": "SHIFT"}`
+- `upall`: release all held modifiers and keys, ex. `{"seq": 10, "kind": "upall"}`
+- `raw`: send an already-formed Teensy protocol line, ex. `{"seq": 11, "kind": "raw", "line": "KEY:F9"}`
 
 Optional fields:
 
 - `delay_after_ms`: local wait after any non-delay command
-- `repeat`: forwarded to the Teensy payload
-- extra keys are preserved under `payload` in the serial JSON line
+- `repeat`: repeated locally on the Pi before the next command
+- extra keys are preserved on the command object for Pi-side metadata/debugging
 
 ## Serial protocol to the Teensy
 
-Every non-delay command is emitted as one JSON line over serial:
+Every non-delay command is emitted as one newline-delimited text line over serial:
 
-```json
-{"seq":2,"type":"text","repeat":1,"text":"Drywall repair"}
+```text
+TEXT:Drywall repair
+KEY:ENTER
+COMBO:CTRL+SHIFT+ESC
+DOWN:SHIFT
+UPALL
 ```
 
-That lets you keep the Teensy firmware very small:
+That matches the Teensy sketch that:
 
 - read one line
-- parse JSON
-- perform the requested key or text action
+- splits on the command prefix
+- performs the requested key or text action
 
 ## Local setup
 

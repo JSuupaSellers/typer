@@ -71,6 +71,13 @@ def default_adjuster_prompt() -> str:
     )
 
 
+def default_direct_output_prompt() -> str:
+    return (
+        "This audio is a spoken prompt that will be turned into polished plain text for typing on another computer. "
+        "Preserve punctuation, names, quoted wording, and paragraph intent accurately."
+    )
+
+
 def _guess_mime_type(filename: str) -> str:
     lowered = filename.lower()
     if lowered.endswith(".wav"):

@@ -496,12 +496,19 @@ final class CatalogStore {
             let itemRows = try Row.fetchAll(
                 db,
                 sql: """
-                    SELECT id, category, selector, description, unit, details
+                    SELECT id, category, selector, description, unit, details, usage_status
                     FROM catalog_items
-                    WHERE usage_status = ?
-                    ORDER BY category, selector, description
-                """,
-                arguments: [UsageStatus.usedBefore.rawValue]
+                    ORDER BY
+                        CASE usage_status
+                            WHEN 'used_before' THEN 0
+                            WHEN 'unreviewed' THEN 1
+                            WHEN 'never_used' THEN 2
+                            ELSE 3
+                        END,
+                        category,
+                        selector,
+                        description
+                """
             )
             let items: [CuratedExportItem] = try itemRows.map { row in
                 let itemID: Int64 = row["id"]
@@ -536,7 +543,6 @@ final class CatalogStore {
                         damageType: note.damageType,
                         keywords: note.keywords,
                         synonyms: note.synonyms,
-                        voiceNotes: note.voiceNotes,
                         aiHint: note.aiHint
                     )
                 }
@@ -549,6 +555,7 @@ final class CatalogStore {
                     description: row["description"],
                     unit: row["unit"],
                     details: row["details"],
+                    usageStatus: row["usage_status"],
                     usageNotes: notes
                 )
             }
