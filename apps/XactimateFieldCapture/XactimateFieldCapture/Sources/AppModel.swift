@@ -12,6 +12,11 @@ struct PendingDirectComposeState: Equatable {
     let statusText: String
 }
 
+struct PendingEstimateExportState: Equatable {
+    let title: String
+    let statusText: String
+}
+
 @MainActor
 final class FieldCaptureAppModel: ObservableObject {
     @Published var backendBaseURL: String {
@@ -44,6 +49,10 @@ final class FieldCaptureAppModel: ObservableObject {
     @Published var directSendEnter: Bool = false
     @Published var directPublishResponse: DirectPublishResponse?
     @Published var pendingDirectCompose: PendingDirectComposeState?
+    @Published var exportTitle: String = "Estimate Export"
+    @Published var exportRows: [EstimateExportRowDraft] = [EstimateExportRowDraft()]
+    @Published var estimateExportPublishResponse: EstimateExportPublishResponse?
+    @Published var pendingEstimateExport: PendingEstimateExportState?
 
     private let client = BackendClient()
     private let recorder = FieldAudioRecorder()
@@ -87,15 +96,42 @@ final class FieldCaptureAppModel: ObservableObject {
     }
 
     var canComposeDirectText: Bool {
-        !backendBaseURL.trimmed.isEmpty && !directPromptDraft.trimmed.isEmpty && pendingDirectCompose == nil
+        !backendBaseURL.trimmed.isEmpty &&
+        !directPromptDraft.trimmed.isEmpty &&
+        pendingDirectCompose == nil &&
+        pendingEstimateExport == nil
     }
 
     var canComposeDirectVoice: Bool {
-        !backendBaseURL.trimmed.isEmpty && directAudioFileURL != nil && pendingDirectCompose == nil
+        !backendBaseURL.trimmed.isEmpty &&
+        directAudioFileURL != nil &&
+        pendingDirectCompose == nil &&
+        pendingEstimateExport == nil
     }
 
     var canPublishDirectOutput: Bool {
-        !backendBaseURL.trimmed.isEmpty && !directOutputText.trimmed.isEmpty && pendingDirectCompose == nil
+        !backendBaseURL.trimmed.isEmpty &&
+        !directOutputText.trimmed.isEmpty &&
+        pendingDirectCompose == nil &&
+        pendingEstimateExport == nil
+    }
+
+    var filledExportRows: [EstimateExportRowDraft] {
+        exportRows
+            .map(\.normalized)
+            .filter { !$0.isEmpty }
+    }
+
+    var exportHasIncompleteRows: Bool {
+        filledExportRows.contains(where: { !$0.isComplete })
+    }
+
+    var canPublishEstimateExport: Bool {
+        !backendBaseURL.trimmed.isEmpty &&
+        !filledExportRows.isEmpty &&
+        !exportHasIncompleteRows &&
+        pendingEstimateExport == nil &&
+        pendingDirectCompose == nil
     }
 
     var activePendingTurn: PendingTurnState? {
@@ -432,6 +468,58 @@ final class FieldCaptureAppModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
             pendingDirectCompose = nil
+        }
+    }
+
+    func addEstimateExportRow() {
+        exportRows.append(EstimateExportRowDraft())
+    }
+
+    func removeEstimateExportRows(at offsets: IndexSet) {
+        exportRows.remove(atOffsets: offsets)
+        if exportRows.isEmpty {
+            exportRows = [EstimateExportRowDraft()]
+        }
+    }
+
+    func clearEstimateExportRows() {
+        exportRows = [EstimateExportRowDraft()]
+        estimateExportPublishResponse = nil
+    }
+
+    func publishEstimateExport() async {
+        let requestBridgeID = bridgeID.trimmed.isEmpty ? "default" : bridgeID.trimmed
+        let normalizedRows = filledExportRows
+        guard !normalizedRows.isEmpty else { return }
+        guard !exportHasIncompleteRows else {
+            errorMessage = "Every export row needs CAT, SEL, and quantity before sending."
+            return
+        }
+
+        pendingEstimateExport = PendingEstimateExportState(
+            title: exportTitle.trimmed.isEmpty ? "Estimate Export" : exportTitle.trimmed,
+            statusText: "Sending estimate rows to Pi..."
+        )
+        errorMessage = nil
+
+        do {
+            let response = try await client.publishEstimateExport(
+                bridgeID: requestBridgeID,
+                title: exportTitle.trimmed.isEmpty ? "Estimate Export" : exportTitle.trimmed,
+                rows: normalizedRows,
+                configuration: backendConfiguration
+            )
+            exportRows = response.rows.map {
+                EstimateExportRowDraft(cat: $0.cat, sel: $0.sel, quantity: $0.quantity)
+            }
+            if exportRows.isEmpty {
+                exportRows = [EstimateExportRowDraft()]
+            }
+            estimateExportPublishResponse = response
+            pendingEstimateExport = nil
+        } catch {
+            errorMessage = error.localizedDescription
+            pendingEstimateExport = nil
         }
     }
 

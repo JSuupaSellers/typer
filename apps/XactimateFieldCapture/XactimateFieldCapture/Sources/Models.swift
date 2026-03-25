@@ -503,6 +503,71 @@ struct DirectPublishResponse: Decodable, Equatable {
     }
 }
 
+struct EstimateExportRowDraft: Identifiable, Equatable {
+    let id: UUID
+    var cat: String
+    var sel: String
+    var quantity: String
+
+    init(id: UUID = UUID(), cat: String = "", sel: String = "", quantity: String = "") {
+        self.id = id
+        self.cat = cat
+        self.sel = sel
+        self.quantity = quantity
+    }
+
+    var isEmpty: Bool {
+        cat.trimmed.isEmpty && sel.trimmed.isEmpty && quantity.trimmed.isEmpty
+    }
+
+    var isComplete: Bool {
+        !cat.trimmed.isEmpty && !sel.trimmed.isEmpty && !quantity.trimmed.isEmpty
+    }
+
+    var normalized: EstimateExportRowDraft {
+        EstimateExportRowDraft(
+            id: id,
+            cat: cat.trimmed.uppercased(),
+            sel: sel.trimmed.uppercased(),
+            quantity: quantity.trimmed
+        )
+    }
+}
+
+struct EstimateExportRowPayload: Decodable, Equatable {
+    let cat: String
+    let sel: String
+    let catSel: String
+    let quantity: String
+
+    enum CodingKeys: String, CodingKey {
+        case cat
+        case sel
+        case catSel = "cat_sel"
+        case quantity
+    }
+}
+
+struct EstimateExportPublishResponse: Decodable, Equatable {
+    let status: String
+    let publish: PublishResponse
+    let bridgeId: String
+    let title: String
+    let rows: [EstimateExportRowPayload]
+    let rowCount: Int
+    let commandCountPreview: Int
+
+    enum CodingKeys: String, CodingKey {
+        case status
+        case publish
+        case bridgeId = "bridge_id"
+        case title
+        case rows
+        case rowCount = "row_count"
+        case commandCountPreview = "command_count_preview"
+    }
+}
+
 struct DraftPlanResponse: Decodable, Equatable {
     let status: String
     let draft: DraftPayload

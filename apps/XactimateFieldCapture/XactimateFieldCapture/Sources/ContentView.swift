@@ -6,20 +6,29 @@ private enum WorkspaceSurface: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+private enum OutputSurface: String, CaseIterable, Identifiable {
+    case direct = "Direct"
+    case export = "Export"
+    var id: String { rawValue }
+}
+
 struct ContentView: View {
     @StateObject private var model = FieldCaptureAppModel()
+    @Environment(\.colorScheme) private var colorScheme
     @State private var showingPublishConfirm = false
     @State private var showingSettings = false
     @State private var showingDirectOutput = false
     @State private var selectedSurface: WorkspaceSurface = .chat
+    @State private var selectedOutputSurface: OutputSurface = .direct
 
-    private let ink = Color(red: 0.11, green: 0.13, blue: 0.18)
-    private let mutedInk = Color(red: 0.42, green: 0.47, blue: 0.54)
-    private let accent = Color(red: 0.12, green: 0.45, blue: 0.36)
-    private let accentWash = Color(red: 0.90, green: 0.96, blue: 0.93)
-    private let userBubbleBg = Color(red: 0.95, green: 0.95, blue: 0.97)
-    private let cardStroke = Color.black.opacity(0.08)
-    private let rejectedTint = Color(red: 0.94, green: 0.95, blue: 0.97)
+    private var isDark: Bool { colorScheme == .dark }
+    private var ink: Color { isDark ? Color(red: 0.93, green: 0.93, blue: 0.96) : Color(red: 0.11, green: 0.13, blue: 0.18) }
+    private var mutedInk: Color { isDark ? Color(red: 0.62, green: 0.65, blue: 0.72) : Color(red: 0.42, green: 0.47, blue: 0.54) }
+    private var accent: Color { isDark ? Color(red: 0.20, green: 0.62, blue: 0.50) : Color(red: 0.12, green: 0.45, blue: 0.36) }
+    private var accentWash: Color { isDark ? Color(red: 0.10, green: 0.22, blue: 0.18) : Color(red: 0.90, green: 0.96, blue: 0.93) }
+    private var userBubbleBg: Color { isDark ? Color(red: 0.18, green: 0.18, blue: 0.22) : Color(red: 0.95, green: 0.95, blue: 0.97) }
+    private var cardStroke: Color { isDark ? Color.white.opacity(0.10) : Color.black.opacity(0.12) }
+    private var rejectedTint: Color { isDark ? Color(red: 0.16, green: 0.17, blue: 0.20) : Color(red: 0.94, green: 0.95, blue: 0.97) }
 
     var body: some View {
         NavigationStack {
@@ -220,7 +229,7 @@ struct ContentView: View {
             Spacer().frame(height: 80)
             Image(systemName: "message")
                 .font(.system(size: 40, weight: .light))
-                .foregroundStyle(mutedInk.opacity(0.4))
+                .foregroundStyle(mutedInk.opacity(0.55))
             Text("Start a conversation")
                 .font(.system(size: 18, weight: .semibold, design: .rounded))
                 .foregroundStyle(ink)
@@ -240,7 +249,7 @@ struct ContentView: View {
             Spacer()
             Image(systemName: "doc.text.magnifyingglass")
                 .font(.system(size: 48, weight: .light))
-                .foregroundStyle(mutedInk.opacity(0.4))
+                .foregroundStyle(mutedInk.opacity(0.55))
             Text("No claim open")
                 .font(.system(size: 20, weight: .semibold, design: .rounded))
                 .foregroundStyle(ink)
@@ -343,7 +352,7 @@ struct ContentView: View {
                         Spacer().frame(height: 40)
                         Image(systemName: "square.stack.3d.down.right")
                             .font(.system(size: 36, weight: .light))
-                            .foregroundStyle(mutedInk.opacity(0.4))
+                            .foregroundStyle(mutedInk.opacity(0.55))
                         Text("No scoped sections yet")
                             .font(.system(size: 17, weight: .semibold, design: .rounded))
                             .foregroundStyle(ink)
@@ -419,7 +428,7 @@ struct ContentView: View {
                         model.audioFileURL = nil
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(mutedInk.opacity(0.6))
+                            .foregroundStyle(mutedInk.opacity(0.75))
                     }
                     .buttonStyle(.plain)
                 }
@@ -553,7 +562,7 @@ struct ContentView: View {
     private func statusBadge(_ status: String) -> some View {
         Text(status.capitalized)
             .font(.system(size: 11, weight: .bold, design: .rounded))
-            .foregroundStyle(status == "accepted" ? accent : ink.opacity(0.5))
+            .foregroundStyle(status == "accepted" ? accent : mutedInk)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(
@@ -588,7 +597,7 @@ struct ContentView: View {
                             Spacer().frame(height: 40)
                             Image(systemName: "tray")
                                 .font(.system(size: 32, weight: .light))
-                                .foregroundStyle(mutedInk.opacity(0.4))
+                                .foregroundStyle(mutedInk.opacity(0.55))
                             Text("No saved claims")
                                 .font(.system(size: 17, weight: .semibold))
                                 .foregroundStyle(ink)
@@ -676,162 +685,27 @@ struct ContentView: View {
 
     private var directOutputSheet: some View {
         NavigationStack {
-            ScrollView(showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Direct Output")
-                            .font(.system(size: 24, weight: .bold, design: .rounded))
-                            .foregroundStyle(ink)
-                        Text("Draft text with the model, review it, then send the sanitized text to the Raspberry Pi bridge.")
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundStyle(mutedInk)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                    HStack(spacing: 8) {
-                        directMetricChip(value: model.directCompose?.characterCount.description ?? "0", label: "Chars")
-                        directMetricChip(value: model.directCompose?.lineCount.description ?? "0", label: "Lines")
-                        directMetricChip(value: model.directCompose?.commandCountPreview.description ?? "0", label: "Cmds")
-                    }
-
-                    if let pending = model.pendingDirectCompose {
-                        HStack(spacing: 10) {
-                            ProgressView()
-                                .tint(accent)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(pending.statusText)
-                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(ink)
-                                Text(pending.submittedPrompt)
-                                    .font(.system(size: 14, weight: .regular))
-                                    .foregroundStyle(mutedInk)
-                                    .lineLimit(4)
-                            }
-                            Spacer()
-                        }
-                        .padding(14)
-                        .background(accentWash, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    }
-
-                    if let compose = model.directCompose {
-                        if !compose.assistantReply.trimmed.isEmpty {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Assistant")
-                                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                                    .foregroundStyle(accent)
-                                Text(compose.assistantReply)
-                                    .font(.system(size: 15, weight: .regular))
-                                    .foregroundStyle(ink)
-                            }
-                            .padding(16)
-                            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .stroke(cardStroke, lineWidth: 1)
-                            )
-                        }
-
-                        if !compose.prompt.trimmed.isEmpty {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Prompt")
-                                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                                    .foregroundStyle(accent)
-                                Text(compose.prompt)
-                                    .font(.system(size: 14, weight: .regular))
-                                    .foregroundStyle(ink)
-                            }
-                            .padding(16)
-                            .background(Color(.systemGray6).opacity(0.55), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        }
-                    }
-
-                    if !model.directTranscript.trimmed.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Transcript")
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
-                                .foregroundStyle(accent)
-                            Text(model.directTranscript)
-                                .font(.system(size: 14, weight: .regular))
-                                .foregroundStyle(mutedInk)
-                        }
-                        .padding(16)
-                        .background(accentWash.opacity(0.7), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Typed Text")
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                            .foregroundStyle(accent)
-
-                        TextEditor(text: $model.directOutputText)
-                            .font(.system(size: 15, weight: .regular))
-                            .foregroundStyle(ink)
-                            .scrollContentBackground(.hidden)
-                            .frame(minHeight: 220)
-                            .padding(12)
-                            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .stroke(cardStroke, lineWidth: 1)
-                            )
-                    }
-
-                    Toggle("Press Enter after typing", isOn: $model.directSendEnter)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(ink)
-
-                    Button {
-                        Task { await model.publishDirectOutput() }
-                    } label: {
-                        Label("Send To Pi", systemImage: "paperplane.fill")
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 13)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.white)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(model.canPublishDirectOutput ? accent : Color(.systemGray4))
-                    )
-                    .disabled(!model.canPublishDirectOutput)
-
-                    if let publish = model.directPublishResponse {
-                        HStack(spacing: 8) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(accent)
-                            Text("Queued \(publish.publish.commandCount) typing commands (seq \(publish.publish.startingSeq)-\(publish.publish.endingSeq))")
-                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                .foregroundStyle(ink)
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(accentWash, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-
-                    if model.directCompose == nil && model.pendingDirectCompose == nil {
-                        VStack(spacing: 10) {
-                            Spacer().frame(height: 24)
-                            Image(systemName: "text.cursor")
-                                .font(.system(size: 34, weight: .light))
-                                .foregroundStyle(mutedInk.opacity(0.4))
-                            Text("No direct draft yet")
-                                .font(.system(size: 17, weight: .semibold, design: .rounded))
-                                .foregroundStyle(ink)
-                            Text("Try something like “draft me an email that says thanks for the update and I’ll follow up tomorrow.”")
-                                .font(.system(size: 14, weight: .regular))
-                                .foregroundStyle(mutedInk)
-                                .multilineTextAlignment(.center)
-                        }
-                        .frame(maxWidth: .infinity)
+            VStack(spacing: 0) {
+                Picker("Output Mode", selection: $selectedOutputSurface) {
+                    ForEach(OutputSurface.allCases) { surface in
+                        Text(surface.rawValue).tag(surface)
                     }
                 }
+                .pickerStyle(.segmented)
                 .padding(.horizontal, 16)
                 .padding(.top, 12)
-                .padding(.bottom, 100)
+
+                Group {
+                    switch selectedOutputSurface {
+                    case .direct:
+                        directOutputContent
+                    case .export:
+                        estimateExportContent
+                    }
+                }
             }
             .background(Color(.systemBackground))
-            .navigationTitle("Direct Output")
+            .navigationTitle("Output Studio")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -841,10 +715,285 @@ struct ContentView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) {
-                directComposerBar
+                Group {
+                    switch selectedOutputSurface {
+                    case .direct:
+                        directComposerBar
+                    case .export:
+                        estimateExportFooterBar
+                    }
+                }
             }
         }
         .presentationDetents([.large])
+    }
+
+    private var directOutputContent: some View {
+        ScrollView(showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Direct Output")
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .foregroundStyle(ink)
+                    Text("Draft text with the model, review it, then send the sanitized text to the Raspberry Pi bridge.")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(mutedInk)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: 8) {
+                    directMetricChip(value: model.directCompose?.characterCount.description ?? "0", label: "Chars")
+                    directMetricChip(value: model.directCompose?.lineCount.description ?? "0", label: "Lines")
+                    directMetricChip(value: model.directCompose?.commandCountPreview.description ?? "0", label: "Cmds")
+                }
+
+                if let pending = model.pendingDirectCompose {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .tint(accent)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(pending.statusText)
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(ink)
+                            Text(pending.submittedPrompt)
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundStyle(mutedInk)
+                                .lineLimit(4)
+                        }
+                        Spacer()
+                    }
+                    .padding(14)
+                    .background(accentWash, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+
+                if let compose = model.directCompose {
+                    if !compose.assistantReply.trimmed.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Assistant")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundStyle(accent)
+                            Text(compose.assistantReply)
+                                .font(.system(size: 15, weight: .regular))
+                                .foregroundStyle(ink)
+                        }
+                        .padding(16)
+                        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(cardStroke, lineWidth: 1)
+                        )
+                    }
+
+                    if !compose.prompt.trimmed.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Prompt")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundStyle(accent)
+                            Text(compose.prompt)
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundStyle(ink)
+                        }
+                        .padding(16)
+                        .background(Color(.systemGray6).opacity(0.55), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+                }
+
+                if !model.directTranscript.trimmed.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Transcript")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundStyle(accent)
+                        Text(model.directTranscript)
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundStyle(mutedInk)
+                    }
+                    .padding(16)
+                    .background(accentWash.opacity(0.7), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Typed Text")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(accent)
+
+                    TextEditor(text: $model.directOutputText)
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(ink)
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 220)
+                        .padding(12)
+                        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(cardStroke, lineWidth: 1)
+                        )
+                }
+
+                Toggle("Press Enter after typing", isOn: $model.directSendEnter)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(ink)
+
+                if let publish = model.directPublishResponse {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(accent)
+                        Text("Queued \(publish.publish.commandCount) typing commands (seq \(publish.publish.startingSeq)-\(publish.publish.endingSeq))")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(ink)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(accentWash, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+
+                if model.directCompose == nil && model.pendingDirectCompose == nil {
+                    VStack(spacing: 10) {
+                        Spacer().frame(height: 24)
+                        Image(systemName: "text.cursor")
+                            .font(.system(size: 34, weight: .light))
+                            .foregroundStyle(mutedInk.opacity(0.55))
+                        Text("No direct draft yet")
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .foregroundStyle(ink)
+                        Text("Try something like “draft me an email that says thanks for the update and I’ll follow up tomorrow.”")
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundStyle(mutedInk)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 100)
+        }
+    }
+
+    private var estimateExportContent: some View {
+        ScrollView(showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Export Estimate")
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .foregroundStyle(ink)
+                    Text("Starts at the first CAT cell. Each row types CAT, TAB, SEL, TAB, quantity formula, then ENTER.")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(mutedInk)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: 8) {
+                    directMetricChip(value: model.filledExportRows.count.description, label: "Rows")
+                    directMetricChip(value: model.exportHasIncompleteRows ? "Yes" : "No", label: "Gaps")
+                    directMetricChip(
+                        value: (model.estimateExportPublishResponse?.commandCountPreview ?? estimatedExportCommandCount()).description,
+                        label: "Cmds"
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Title")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(accent)
+                    TextField("Estimate Export", text: $model.exportTitle)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 16, weight: .regular))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(cardStroke, lineWidth: 1)
+                        )
+                }
+
+                if let pending = model.pendingEstimateExport {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .tint(accent)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(pending.statusText)
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(ink)
+                            Text(pending.title)
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundStyle(mutedInk)
+                        }
+                        Spacer()
+                    }
+                    .padding(14)
+                    .background(accentWash, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Rows")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundStyle(accent)
+                        Spacer()
+                        Button("Add Row") {
+                            model.addEstimateExportRow()
+                        }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(accent)
+                    }
+
+                    ForEach(Array(model.exportRows.indices), id: \.self) { index in
+                        estimateExportRowCard(index: index)
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    Button("Add Another Row") {
+                        model.addEstimateExportRow()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(accent)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(accentWash, in: Capsule(style: .continuous))
+
+                    Button("Clear") {
+                        model.clearEstimateExportRows()
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(mutedInk)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color(.systemGray6), in: Capsule(style: .continuous))
+                }
+
+                if let publish = model.estimateExportPublishResponse {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(accent)
+                        Text("Queued \(publish.publish.commandCount) export commands across \(publish.rowCount) row\(publish.rowCount == 1 ? "" : "s").")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(ink)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(accentWash, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Formula examples")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(accent)
+                    Text("Use the exact Xactimate formula you want typed, like `2,2*2` or `12+4`.")
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(mutedInk)
+                }
+                .padding(16)
+                .background(Color(.systemGray6).opacity(0.55), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 120)
+        }
     }
 
     private var directComposerBar: some View {
@@ -870,7 +1019,7 @@ struct ContentView: View {
                         model.directAudioFileURL = nil
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(mutedInk.opacity(0.6))
+                            .foregroundStyle(mutedInk.opacity(0.75))
                     }
                     .buttonStyle(.plain)
                 }
@@ -926,6 +1075,41 @@ struct ContentView: View {
         .padding(.bottom, 8)
     }
 
+    private var estimateExportFooterBar: some View {
+        VStack(spacing: 8) {
+            if model.exportHasIncompleteRows {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text("Finish CAT, SEL, and quantity for every started row before sending.")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(mutedInk)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+
+            Button {
+                Task { await model.publishEstimateExport() }
+            } label: {
+                Label("Send Estimate To Pi", systemImage: "paperplane.fill")
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 13)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.white)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(model.canPublishEstimateExport ? accent : Color(.systemGray4))
+            )
+            .disabled(!model.canPublishEstimateExport)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+    }
+
     // MARK: - Overlays
 
     private var busyOverlay: some View {
@@ -966,15 +1150,71 @@ struct ContentView: View {
                     .lineLimit(2)
                 Text("\(summary.roomCount) rooms  \u{2022}  \(summary.itemCount) items  \u{2022}  \(summary.messageCount) turns")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(mutedInk.opacity(0.7))
+                    .foregroundStyle(mutedInk.opacity(0.8))
             }
             Spacer()
             Image(systemName: "chevron.right")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(mutedInk.opacity(0.4))
+                .foregroundStyle(mutedInk.opacity(0.55))
         }
         .padding(16)
         .background(Color(.systemGray6).opacity(0.5), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func estimateExportRowCard(index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Row \(index + 1)")
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(ink)
+                Spacer()
+                if model.exportRows.count > 1 {
+                    Button(role: .destructive) {
+                        model.removeEstimateExportRows(at: IndexSet(integer: index))
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(mutedInk)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            HStack(spacing: 10) {
+                exportField(title: "CAT", text: $model.exportRows[index].cat, width: 88)
+                exportField(title: "SEL", text: $model.exportRows[index].sel, width: nil)
+            }
+
+            exportField(title: "QTY Formula", text: $model.exportRows[index].quantity, width: nil, quantityField: true)
+        }
+        .padding(14)
+        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(cardStroke, lineWidth: 1)
+        )
+    }
+
+    private func exportField(
+        title: String,
+        text: Binding<String>,
+        width: CGFloat?,
+        quantityField: Bool = false
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(accent)
+            TextField(title, text: text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 16, weight: .regular))
+                .textInputAutocapitalization(quantityField ? .never : .characters)
+                .autocorrectionDisabled()
+                .padding(.horizontal, 12)
+                .padding(.vertical, 11)
+                .background(Color(.systemGray6).opacity(0.65), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .frame(maxWidth: width == nil ? .infinity : width, alignment: .leading)
     }
 
     // MARK: - Helpers
@@ -1010,5 +1250,11 @@ struct ContentView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
         .background(Color(.systemGray6).opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func estimatedExportCommandCount() -> Int {
+        model.filledExportRows.reduce(1) { partial, row in
+            partial + row.cat.count + 1 + row.sel.count + 1 + row.quantity.count + 1
+        }
     }
 }

@@ -246,6 +246,42 @@ struct BackendClient {
         )
     }
 
+    func publishEstimateExport(
+        bridgeID: String,
+        title: String,
+        rows: [EstimateExportRowDraft],
+        configuration: BackendConfiguration
+    ) async throws -> EstimateExportPublishResponse {
+        struct EstimateExportRowRequest: Encodable {
+            let cat: String
+            let sel: String
+            let quantity: String
+        }
+
+        struct EstimateExportPublishRequest: Encodable {
+            let bridge_id: String
+            let title: String
+            let rows: [EstimateExportRowRequest]
+        }
+
+        return try await postJSON(
+            path: "estimate-export/publish",
+            payload: EstimateExportPublishRequest(
+                bridge_id: bridgeID,
+                title: title,
+                rows: rows.map {
+                    EstimateExportRowRequest(
+                        cat: $0.cat.trimmed.uppercased(),
+                        sel: $0.sel.trimmed.uppercased(),
+                        quantity: $0.quantity.trimmed
+                    )
+                }
+            ),
+            configuration: configuration,
+            as: EstimateExportPublishResponse.self
+        )
+    }
+
     private func postJSON<T: Encodable, U: Decodable>(
         path: String,
         payload: T,
