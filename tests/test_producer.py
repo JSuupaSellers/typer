@@ -850,12 +850,12 @@ class ProducerTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "offline or stale"):
             offline_service.publish_text(bridge_id="default", text="offline")
 
-    def test_estimate_export_compile_types_cat_sel_tab_quantity_then_enter(self) -> None:
+    def test_estimate_export_compile_types_cat_tab_sel_tab_quantity_then_enter(self) -> None:
         service = EstimateExportService(self.config, FakePublisher())
         rows = service.parse_rows(
             [
                 {"cat_sel": "PNT/SP", "quantity": "2,2*2"},
-                {"cat_sel": "CLN/AV", "quantity": "12+4"},
+                {"cat": "CLN", "sel": "AV", "quantity": "12+4"},
             ]
         )
 
@@ -863,8 +863,9 @@ class ProducerTests(unittest.TestCase):
 
         self.assertEqual(commands[0].kind, "upall")
         keys = [command.key for command in commands[1:] if command.kind == "key"]
-        self.assertEqual(keys[:6], ["P", "N", "T", "/", "S", "P"])
-        self.assertIn("TAB", keys)
+        self.assertEqual(keys[:13], ["P", "N", "T", "TAB", "S", "P", "TAB", "2", ",", "2", "*", "2", "ENTER"])
+        self.assertNotIn("/", keys)
+        self.assertEqual(keys.count("TAB"), 4)
         self.assertIn("ENTER", keys)
         self.assertIn(",", keys)
         self.assertIn("*", keys)
@@ -936,13 +937,15 @@ class ProducerTests(unittest.TestCase):
                 "title": "Estimate Export",
                 "rows": [
                     {"cat_sel": "PNT/SP", "quantity": "2,2*2"},
-                    {"cat_sel": "CLN/AV", "quantity": "12+4"},
+                    {"cat": "CLN", "sel": "AV", "quantity": "12+4"},
                 ],
             },
         )
         self.assertEqual(export_publish.status_code, 200)
         self.assertEqual(export_publish.json()["publish"]["bridge_id"], "field")
         self.assertEqual(export_publish.json()["row_count"], 2)
+        self.assertEqual(export_publish.json()["rows"][0]["cat"], "PNT")
+        self.assertEqual(export_publish.json()["rows"][0]["sel"], "SP")
         self.assertEqual(export_publish.json()["rows"][0]["cat_sel"], "PNT/SP")
         self.assertEqual(export_publish.json()["rows"][0]["quantity"], "2,2*2")
 

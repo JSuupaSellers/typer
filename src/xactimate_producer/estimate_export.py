@@ -31,21 +31,48 @@ class EstimateExportPublisherProtocol(Protocol):
 
 @dataclass(frozen=True)
 class EstimateExportRow:
-    cat_sel: str
+    cat: str
+    sel: str
     quantity: str
 
     @classmethod
     def from_payload(cls, raw: dict[str, Any], index: int) -> "EstimateExportRow":
+        cat = str(raw.get("cat", raw.get("category", ""))).strip().upper()
+        sel = str(raw.get("sel", raw.get("selector", ""))).strip().upper()
         cat_sel = str(raw.get("cat_sel", raw.get("catSel", raw.get("code", "")))).strip().upper()
         quantity = str(raw.get("quantity", raw.get("qty", ""))).strip()
-        if not cat_sel:
-            raise RuntimeError(f"Export row {index} is missing cat_sel.")
+        if (not cat or not sel) and cat_sel:
+            cat, sel = cls._split_cat_sel(cat_sel=cat_sel, index=index)
+        if not cat:
+            raise RuntimeError(f"Export row {index} is missing cat.")
+        if not sel:
+            raise RuntimeError(f"Export row {index} is missing sel.")
         if not quantity:
             raise RuntimeError(f"Export row {index} is missing quantity.")
-        return cls(cat_sel=cat_sel, quantity=quantity)
+        return cls(cat=cat, sel=sel, quantity=quantity)
+
+    @property
+    def cat_sel(self) -> str:
+        return f"{self.cat}/{self.sel}"
 
     def to_dict(self) -> dict[str, str]:
-        return {"cat_sel": self.cat_sel, "quantity": self.quantity}
+        return {
+            "cat": self.cat,
+            "sel": self.sel,
+            "cat_sel": self.cat_sel,
+            "quantity": self.quantity,
+        }
+
+    @staticmethod
+    def _split_cat_sel(*, cat_sel: str, index: int) -> tuple[str, str]:
+        if "/" not in cat_sel:
+            raise RuntimeError(f"Export row {index} cat_sel must look like CAT/SEL.")
+        cat, sel = cat_sel.split("/", 1)
+        cat = cat.strip().upper()
+        sel = sel.strip().upper()
+        if not cat or not sel:
+            raise RuntimeError(f"Export row {index} cat_sel must include both CAT and SEL.")
+        return cat, sel
 
 
 @dataclass(frozen=True)
@@ -134,7 +161,7 @@ class EstimateExportService:
         seq += 1
 
         for row_index, row in enumerate(rows, start=1):
-            for character in row.cat_sel:
+            for character in row.cat:
                 commands.append(
                     CompiledCommand(
                         seq=seq,
@@ -143,7 +170,38 @@ class EstimateExportService:
                         delay_after_ms=self._config.estimate_export_key_delay_ms,
                         metadata={
                             "mode": "estimate_export",
-                            "command_role": "cat_sel",
+                            "command_role": "cat",
+                            "row_index": row_index,
+                        },
+                    )
+                )
+                seq += 1
+
+            commands.append(
+                CompiledCommand(
+                    seq=seq,
+                    kind="key",
+                    key="TAB",
+                    delay_after_ms=self._config.estimate_export_tab_delay_ms,
+                    metadata={
+                        "mode": "estimate_export",
+                        "command_role": "advance_to_sel",
+                        "row_index": row_index,
+                    },
+                )
+            )
+            seq += 1
+
+            for character in row.sel:
+                commands.append(
+                    CompiledCommand(
+                        seq=seq,
+                        kind="key",
+                        key=self._key_token_for_character(character),
+                        delay_after_ms=self._config.estimate_export_key_delay_ms,
+                        metadata={
+                            "mode": "estimate_export",
+                            "command_role": "sel",
                             "row_index": row_index,
                         },
                     )
@@ -201,7 +259,7 @@ class EstimateExportService:
     @staticmethod
     def parse_rows(raw_rows: Any) -> tuple[EstimateExportRow, ...]:
         if not isinstance(raw_rows, list):
-            raise RuntimeError("rows must be an array of {cat_sel, quantity} objects.")
+            raise RuntimeError("rows must be an array of {cat, sel, quantity} or {cat_sel, quantity} objects.")
         rows = tuple(
             EstimateExportRow.from_payload(raw, index + 1)
             for index, raw in enumerate(raw_rows)
