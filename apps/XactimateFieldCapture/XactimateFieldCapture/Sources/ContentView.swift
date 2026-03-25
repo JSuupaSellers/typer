@@ -3,92 +3,90 @@ import SwiftUI
 private enum WorkspaceSurface: String, CaseIterable, Identifiable {
     case chat = "Chat"
     case scope = "Scope"
-
     var id: String { rawValue }
-
-    var icon: String {
-        switch self {
-        case .chat:
-            return "bubble.left.and.bubble.right.fill"
-        case .scope:
-            return "square.stack.3d.up.fill"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .chat:
-            return "Conversation"
-        case .scope:
-            return "Room stack"
-        }
-    }
 }
 
 struct ContentView: View {
     @StateObject private var model = FieldCaptureAppModel()
     @State private var showingPublishConfirm = false
     @State private var showingSettings = false
+    @State private var showingDirectOutput = false
     @State private var selectedSurface: WorkspaceSurface = .chat
 
-    private let canvas = Color(red: 0.95, green: 0.97, blue: 0.99)
-    private let canvasShade = Color(red: 0.91, green: 0.94, blue: 0.98)
-    private let cardStroke = Color.black.opacity(0.08)
-    private let cardShadow = Color.black.opacity(0.09)
     private let ink = Color(red: 0.11, green: 0.13, blue: 0.18)
     private let mutedInk = Color(red: 0.42, green: 0.47, blue: 0.54)
     private let accent = Color(red: 0.12, green: 0.45, blue: 0.36)
-    private let accentDeep = Color(red: 0.08, green: 0.26, blue: 0.23)
     private let accentWash = Color(red: 0.90, green: 0.96, blue: 0.93)
-    private let userBubble = Color(red: 0.16, green: 0.18, blue: 0.22)
-    private let assistantBubble = Color.white.opacity(0.88)
+    private let userBubbleBg = Color(red: 0.95, green: 0.95, blue: 0.97)
+    private let cardStroke = Color.black.opacity(0.08)
     private let rejectedTint = Color(red: 0.94, green: 0.95, blue: 0.97)
 
     var body: some View {
         NavigationStack {
-            ScrollView(showsIndicators: false) {
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    claimContextPanel
-
-                    if model.draft != nil {
-                        workspacePanel
+            Group {
+                if model.draft != nil {
+                    switch selectedSurface {
+                    case .chat:
+                        chatView
+                    case .scope:
+                        scopeView
                     }
+                } else {
+                    emptyStateView
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 144)
             }
-            .background(background)
-            .task {
-                await model.loadClaims(silently: true)
-            }
+            .background(Color(.systemBackground))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
                         model.showingClaims = true
                     } label: {
-                        Image(systemName: "rectangle.stack.fill")
-                            .font(.system(size: 16, weight: .semibold))
+                        Image(systemName: "line.3.horizontal")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(ink)
+                    }
+                }
+
+                ToolbarItem(placement: .principal) {
+                    if model.draft != nil {
+                        Picker("Surface", selection: $selectedSurface) {
+                            ForEach(WorkspaceSurface.allCases) { surface in
+                                Text(surface.rawValue).tag(surface)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 160)
+                    } else {
+                        Text("Field Capture")
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
                             .foregroundStyle(ink)
                     }
                 }
 
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button {
+                        showingDirectOutput = true
+                    } label: {
+                        Image(systemName: "keyboard")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(ink)
+                    }
+
+                    Button {
                         showingSettings = true
                     } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(ink)
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(mutedInk)
                     }
 
                     Button {
                         Task { await model.startNewClaim() }
                     } label: {
                         Image(systemName: "square.and.pencil")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(accent)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(ink)
                     }
                 }
             }
@@ -101,13 +99,12 @@ struct ContentView: View {
             .sheet(isPresented: $showingSettings) {
                 settingsSheet
             }
+            .sheet(isPresented: $showingDirectOutput) {
+                directOutputSheet
+            }
             .alert("Something went wrong", isPresented: Binding(
                 get: { model.errorMessage != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        model.errorMessage = nil
-                    }
-                }
+                set: { if !$0 { model.errorMessage = nil } }
             )) {
                 Button("OK", role: .cancel) {}
             } message: {
@@ -126,523 +123,500 @@ struct ContentView: View {
                     busyOverlay
                 }
             }
+            .task {
+                await model.loadClaims(silently: true)
+            }
         }
     }
 
-    private var claimContextPanel: some View {
-        glassCard(cornerRadius: 30, padding: 20) {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        sectionLabel(model.draft == nil ? "Claim Setup" : "Active Claim")
+    // MARK: - Chat
 
-                        Text(currentClaimTitle)
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .foregroundStyle(ink)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.72)
-
-                        Text(heroDescription)
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
+    private var chatView: some View {
+        ScrollView(showsIndicators: false) {
+            LazyVStack(spacing: 20) {
+                if !model.transcript.isEmpty {
+                    HStack(spacing: 8) {
+                        Image(systemName: "waveform")
+                            .font(.system(size: 13))
+                            .foregroundStyle(accent)
+                        Text(model.transcript)
+                            .font(.system(size: 14, weight: .regular))
                             .foregroundStyle(mutedInk)
-                            .lineLimit(3)
-                    }
-
-                    Spacer(minLength: 12)
-
-                    statusPill(label: workflowStateLabel, systemImage: workflowStateIcon)
-                }
-
-                if model.draft != nil {
-                    compactMetricsRow
-                }
-
-                if !model.claimSummaries.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            sectionLabel("Working Claims")
-                            Spacer()
-                            Button("See All") {
-                                model.showingClaims = true
-                            }
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                            .foregroundStyle(accent)
-                        }
-
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(model.claimSummaries.prefix(6)) { summary in
-                                    Button {
-                                        Task { await model.switchToClaim(summary) }
-                                    } label: {
-                                        compactClaimChip(summary)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-                            .padding(.vertical, 1)
-                        }
-                    }
-                }
-
-                if model.draft != nil {
-                    workspacePicker
-                }
-
-                HStack(spacing: 10) {
-                    prominentCapsuleButton(
-                        title: model.draft == nil ? "Open Claim" : "Refresh",
-                        systemImage: model.draft == nil ? "arrow.up.forward.app" : "arrow.clockwise",
-                        fill: accent,
-                        foreground: .white
-                    ) {
-                        Task {
-                            if model.draft == nil {
-                                await model.openDraft()
-                            } else {
-                                await model.refreshDraft()
-                            }
-                        }
-                    }
-                    .disabled(!model.canOpenDraft)
-
-                    subtleCapsuleButton(title: "Claims", systemImage: "rectangle.stack") {
-                        model.showingClaims = true
-                    }
-                }
-
-                if let publish = model.publishResponse {
-                    HStack(spacing: 10) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(accent)
-                        Text("Queued \(publish.commandCount) bridge commands at seq \(publish.startingSeq)-\(publish.endingSeq).")
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundStyle(ink)
-                            .lineLimit(2)
                     }
                     .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .background(accentWash, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                }
-            }
-        }
-    }
-
-    private var compactMetricsRow: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                compactMetric(value: "\(roomCount)", label: "Rooms")
-                compactMetric(value: "\(model.draft?.items.count ?? 0)", label: "Items")
-                if messageCount > 0 {
-                    compactMetric(value: "\(messageCount)", label: "Turns")
-                }
-                if acceptedCount > 0 || pendingCount > 0 || rejectedCount > 0 {
-                    compactMetric(value: "\(acceptedCount)", label: "Accepted")
-                }
-                if pendingCount > 0 {
-                    compactMetric(value: "\(pendingCount)", label: "Pending")
-                }
-            }
-            .padding(.vertical, 1)
-        }
-    }
-
-    private var workspacePicker: some View {
-        HStack(spacing: 10) {
-            ForEach(WorkspaceSurface.allCases) { surface in
-                Button {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                        selectedSurface = surface
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: surface.icon)
-                            .font(.system(size: 13, weight: .semibold))
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(surface.rawValue)
-                                .font(.system(size: 14, weight: .bold, design: .rounded))
-                            Text(surface.subtitle.uppercased())
-                                .font(.system(size: 10, weight: .bold, design: .rounded))
-                                .kerning(0.5)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .foregroundStyle(selectedSurface == surface ? Color.white : ink)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 13)
+                    .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .fill(selectedSurface == surface ? LinearGradient(colors: [accent, accentDeep], startPoint: .topLeading, endPoint: .bottomTrailing) : LinearGradient(colors: [Color.white.opacity(0.66), Color.white.opacity(0.50)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .stroke(selectedSurface == surface ? Color.clear : cardStroke, lineWidth: 1)
-                    )
+                    .background(accentWash.opacity(0.6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
-                .buttonStyle(.plain)
+
+                if let messages = model.draft?.messages, !messages.isEmpty {
+                    ForEach(messages) { message in
+                        messageRow(message)
+                    }
+                }
+
+                if let pending = model.activePendingTurn {
+                    HStack {
+                        Spacer(minLength: 60)
+                        Text(pending.submittedText)
+                            .font(.system(size: 16, weight: .regular))
+                            .foregroundStyle(ink)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(userBubbleBg, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    }
+
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .tint(accent)
+                            .scaleEffect(0.85)
+                        Text(pending.statusText)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(mutedInk)
+                        Spacer()
+                    }
+                    .padding(.leading, 4)
+                }
+
+                if (model.draft?.messages ?? []).isEmpty && model.activePendingTurn == nil {
+                    chatEmptyState
+                }
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 16)
+        }
+        .refreshable {
+            await model.refreshDraft()
         }
     }
 
     @ViewBuilder
-    private var workspacePanel: some View {
-        switch selectedSurface {
-        case .chat:
-            chatWorkspace
-        case .scope:
-            scopeWorkspace
+    private func messageRow(_ message: DraftMessagePayload) -> some View {
+        if message.role == "assistant" {
+            HStack {
+                Text(message.text)
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(ink)
+                    .textSelection(.enabled)
+                Spacer(minLength: 60)
+            }
+            .padding(.leading, 4)
+        } else {
+            HStack {
+                Spacer(minLength: 60)
+                Text(message.text)
+                    .font(.system(size: 16, weight: .regular))
+                    .foregroundStyle(ink)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(userBubbleBg, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            }
         }
     }
 
-    private var chatWorkspace: some View {
-        glassCard(cornerRadius: 32, padding: 18) {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Conversation")
-                            .font(.system(size: 20, weight: .bold, design: .rounded))
-                            .foregroundStyle(ink)
-                        Text("Talk through the loss, corrections, and missing scope here.")
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
-                            .foregroundStyle(mutedInk)
+    private var chatEmptyState: some View {
+        VStack(spacing: 12) {
+            Spacer().frame(height: 80)
+            Image(systemName: "message")
+                .font(.system(size: 40, weight: .light))
+                .foregroundStyle(mutedInk.opacity(0.4))
+            Text("Start a conversation")
+                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                .foregroundStyle(ink)
+            Text("Describe a room, correction, or missing scope.")
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(mutedInk)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 60)
+    }
+
+    // MARK: - Empty State (no draft)
+
+    private var emptyStateView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "doc.text.magnifyingglass")
+                .font(.system(size: 48, weight: .light))
+                .foregroundStyle(mutedInk.opacity(0.4))
+            Text("No claim open")
+                .font(.system(size: 20, weight: .semibold, design: .rounded))
+                .foregroundStyle(ink)
+            Text("Open a claim to start capturing scope.")
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(mutedInk)
+
+            Button {
+                Task { await model.openDraft() }
+            } label: {
+                Text("Open Claim")
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 12)
+                    .background(accent, in: Capsule(style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(!model.canOpenDraft)
+            .padding(.top, 8)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Scope
+
+    private var scopeView: some View {
+        ScrollView(showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    scopeActionButton("Accept All", icon: "checkmark.circle", style: .outline) {
+                        Task { await model.acceptAll() }
                     }
-                    Spacer(minLength: 10)
-                    if !model.transcript.isEmpty {
-                        statusPill(label: "Voice Applied", systemImage: "waveform")
+                    .disabled(!model.canAcceptAll)
+
+                    scopeActionButton("Plan", icon: "bolt.horizontal.circle", style: .filled) {
+                        Task { await model.planDraft() }
                     }
+                    .disabled(!model.canPlan)
+
+                    scopeActionButton("Publish", icon: "paperplane.fill", style: .dark) {
+                        showingPublishConfirm = true
+                    }
+                    .disabled(!model.canPublish)
                 }
 
-                if !model.transcript.isEmpty {
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: "waveform.path.ecg")
+                if let plan = model.planResponse {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checklist")
                             .foregroundStyle(accent)
-                        Text(model.transcript)
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
-                            .foregroundStyle(ink.opacity(0.76))
+                        Text(planSummaryText(plan))
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(ink)
                     }
-                    .padding(14)
-                    .background(accentWash, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(accentWash, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
 
-                if let messages = model.draft?.messages, !messages.isEmpty {
-                    LazyVStack(spacing: 12) {
-                        ForEach(messages) { message in
-                            HStack {
-                                if message.role == "assistant" {
-                                    messageBubble(message, fill: assistantBubble, foreground: ink, isLeading: true, showsStroke: true)
-                                    Spacer(minLength: 54)
-                                } else {
-                                    Spacer(minLength: 54)
-                                    messageBubble(message, fill: userBubble, foreground: .white, isLeading: false, showsStroke: false)
-                                }
-                            }
-                        }
+                if let publish = model.publishResponse {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(accent)
+                        Text("Queued \(publish.commandCount) commands (seq \(publish.startingSeq)-\(publish.endingSeq))")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(ink)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(accentWash, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
 
-                        if let pendingTurn = model.activePendingTurn {
-                            HStack {
-                                Spacer(minLength: 54)
-                                messageBubble(
-                                    text: pendingTurn.submittedText,
-                                    role: "user",
-                                    fill: userBubble,
-                                    foreground: .white,
-                                    isLeading: false,
-                                    showsStroke: false
+                if model.rooms.count > 1 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(model.rooms, id: \.self) { room in
+                                Button(room) {
+                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                                        model.selectedRoom = room
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(model.selectedRoom == room ? .white : ink)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                                .background(
+                                    Capsule(style: .continuous)
+                                        .fill(model.selectedRoom == room ? accent : Color(.systemGray6))
                                 )
                             }
-
-                            HStack {
-                                thinkingBubble(pendingTurn.statusText)
-                                Spacer(minLength: 54)
-                            }
                         }
                     }
-                } else if let pendingTurn = model.activePendingTurn {
-                    LazyVStack(spacing: 12) {
-                        HStack {
-                            Spacer(minLength: 54)
-                            messageBubble(
-                                text: pendingTurn.submittedText,
-                                role: "user",
-                                fill: userBubble,
-                                foreground: .white,
-                                isLeading: false,
-                                showsStroke: false
-                            )
-                        }
+                }
 
-                        HStack {
-                            thinkingBubble(pendingTurn.statusText)
-                            Spacer(minLength: 54)
-                        }
+                if model.filteredSections.isEmpty {
+                    VStack(spacing: 10) {
+                        Spacer().frame(height: 40)
+                        Image(systemName: "square.stack.3d.down.right")
+                            .font(.system(size: 36, weight: .light))
+                            .foregroundStyle(mutedInk.opacity(0.4))
+                        Text("No scoped sections yet")
+                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                            .foregroundStyle(ink)
+                        Text("Keep talking through the loss and sections will appear here.")
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundStyle(mutedInk)
+                            .multilineTextAlignment(.center)
                     }
+                    .frame(maxWidth: .infinity)
                 } else {
-                    modernEmptyState(
-                        systemImage: "ellipsis.message",
-                        title: "No conversation yet",
-                        body: "Start with the room and the top-most scope. The draft will build downward from there."
-                    )
-                }
-            }
-        }
-    }
-
-    private var scopeWorkspace: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            glassCard(cornerRadius: 30, padding: 18) {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Room Stack")
-                                .font(.system(size: 20, weight: .bold, design: .rounded))
-                                .foregroundStyle(ink)
-                            Text("Review one room section at a time, then plan and publish the accepted stack.")
-                                .font(.system(size: 13, weight: .medium, design: .rounded))
-                                .foregroundStyle(mutedInk)
-                        }
-                        Spacer(minLength: 10)
-                        if let plan = model.planResponse {
-                            statusPill(label: planSummaryText(plan), systemImage: "checklist")
-                        }
-                    }
-
-                    HStack(spacing: 10) {
-                        actionButton(
-                            "Accept All",
-                            systemImage: "checkmark.circle",
-                            fill: Color.white.opacity(0.88),
-                            foreground: ink
-                            ,
-                            outlined: true
-                        ) {
-                            Task { await model.acceptAll() }
-                        }
-                        .disabled(!model.canAcceptAll)
-
-                        actionButton(
-                            "Plan",
-                            systemImage: "bolt.horizontal.circle",
-                            fill: accent,
-                            foreground: .white,
-                            outlined: false
-                        ) {
-                            Task { await model.planDraft() }
-                        }
-                        .disabled(!model.canPlan)
-
-                        actionButton(
-                            "Publish",
-                            systemImage: "paperplane.fill",
-                            fill: ink,
-                            foreground: .white,
-                            outlined: false
-                        ) {
-                            showingPublishConfirm = true
-                        }
-                        .disabled(!model.canPublish)
-                    }
-
-                    if model.rooms.count > 1 {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 10) {
-                                ForEach(model.rooms, id: \.self) { room in
-                                    Button(room) {
-                                        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                                            model.selectedRoom = room
-                                        }
-                                    }
-                                    .buttonStyle(.plain)
-                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(model.selectedRoom == room ? Color.white : ink)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 11)
-                                    .background(
-                                        Capsule(style: .continuous)
-                                            .fill(model.selectedRoom == room ? accent : Color.white.opacity(0.72))
-                                    )
-                                    .overlay(
-                                        Capsule(style: .continuous)
-                                            .stroke(model.selectedRoom == room ? Color.clear : cardStroke, lineWidth: 1)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if model.filteredSections.isEmpty {
-                glassCard {
-                    modernEmptyState(
-                        systemImage: "square.stack.3d.down.right",
-                        title: "No scoped sections yet",
-                        body: "Keep talking through the loss and the room stack will populate here in review order."
-                    )
-                }
-            } else {
-                VStack(spacing: 14) {
                     ForEach(model.filteredSections) { group in
                         scopeGroupCard(group)
                     }
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 100)
+        }
+        .refreshable {
+            await model.refreshDraft()
         }
     }
 
-    private var welcomePanel: some View {
-        glassCard(cornerRadius: 32, padding: 22) {
-            VStack(alignment: .leading, spacing: 16) {
-                modernEmptyState(
-                    systemImage: "mic.and.signal.meter",
-                    title: "Open a claim to start",
-                    body: "This app is meant to stay simple: capture scope in chat, review the room stack, then publish when it looks right."
-                )
+    private enum ScopeButtonStyle { case outline, filled, dark }
 
-                HStack(spacing: 10) {
-                    prominentCapsuleButton(title: "Open Claim", systemImage: "arrow.up.forward.app", fill: accent, foreground: .white) {
-                        Task { await model.openDraft() }
-                    }
-                    .disabled(!model.canOpenDraft)
-
-                    subtleCapsuleButton(title: "Settings", systemImage: "slider.horizontal.3") {
-                        showingSettings = true
-                    }
-                }
-            }
+    private func scopeActionButton(
+        _ title: String,
+        icon: String,
+        style: ScopeButtonStyle,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
         }
+        .buttonStyle(.plain)
+        .foregroundStyle(style == .outline ? ink : .white)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(style == .filled ? accent : (style == .dark ? ink : Color(.systemGray6)))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(style == .outline ? cardStroke : Color.clear, lineWidth: 1)
+        )
     }
+
+    // MARK: - Composer
 
     private var composerBar: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let audioFileURL = model.audioFileURL {
+        VStack(spacing: 8) {
+            if model.audioFileURL != nil {
                 HStack(spacing: 8) {
-                    Image(systemName: "waveform.circle.fill")
+                    Image(systemName: "waveform")
                         .foregroundStyle(accent)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Voice clip ready")
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                            .foregroundStyle(ink)
-                        Text(audioFileURL.lastPathComponent)
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .foregroundStyle(mutedInk)
-                    }
+                        .font(.system(size: 14))
+                    Text("Voice clip ready")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(mutedInk)
                     Spacer()
-                    Button("Send Voice") {
+                    Button("Send") {
                         Task { await model.sendVoiceTurn() }
                     }
                     .buttonStyle(.plain)
                     .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundStyle(accent)
                     .disabled(!model.canSendVoice)
+
+                    Button {
+                        model.audioFileURL = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(mutedInk.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(Color.white.opacity(0.74), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
 
-            HStack(alignment: .bottom, spacing: 10) {
+            HStack(alignment: .bottom, spacing: 8) {
                 Button {
                     Task { await model.toggleRecording() }
                 } label: {
                     Image(systemName: model.isRecording ? "stop.fill" : "mic.fill")
-                        .font(.system(size: 16, weight: .bold))
-                        .frame(width: 46, height: 46)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(model.isRecording ? .white : mutedInk)
+                        .frame(width: 36, height: 36)
+                        .background(
+                            model.isRecording ? Color.red : Color(.systemGray5),
+                            in: Circle()
+                        )
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.white)
-                .background(model.isRecording ? Color.red : accent, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
-                TextField("Describe a room, correction, or missing scope...", text: $model.messageDraft, axis: .vertical)
+                TextField("Message...", text: $model.messageDraft, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .font(.system(size: 16))
                     .foregroundStyle(ink)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(Color.white.opacity(0.92), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .stroke(cardStroke, lineWidth: 1)
-                    )
                     .lineLimit(1 ... 5)
+                    .padding(.vertical, 10)
 
                 Button {
                     Task { await model.sendTextTurn() }
                 } label: {
                     Image(systemName: "arrow.up")
-                        .font(.system(size: 16, weight: .bold))
-                        .frame(width: 46, height: 46)
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 32, height: 32)
+                        .background(
+                            model.canSendText ? ink : Color(.systemGray4),
+                            in: Circle()
+                        )
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.white)
-                .background(model.canSendText ? ink : mutedInk.opacity(0.35), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .disabled(!model.canSendText)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(Color(.systemGray6))
+            )
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 10)
-        .padding(.bottom, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(.regularMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .stroke(Color.white.opacity(0.55), lineWidth: 1)
-        )
-        .shadow(color: cardShadow, radius: 18, y: 8)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, 16)
         .padding(.bottom, 8)
     }
+
+    // MARK: - Scope Group Card
+
+    private func scopeGroupCard(_ group: DraftSectionPayload) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(group.room)
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundStyle(ink)
+                    Text(group.note.uppercased())
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(accent)
+                        .kerning(0.6)
+                }
+                Spacer()
+                Text("\(group.items.count) items")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(mutedInk)
+            }
+
+            ForEach(group.items) { item in
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.approvedCode)
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundStyle(accent)
+                            Text(item.description)
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundStyle(ink)
+                            let details = detailLine(for: item)
+                            if !details.isEmpty {
+                                Text(details)
+                                    .font(.system(size: 13, weight: .regular))
+                                    .foregroundStyle(mutedInk)
+                            }
+                        }
+                        Spacer(minLength: 8)
+                        statusBadge(item.status)
+                    }
+
+                    if !item.rationale.trimmed.isEmpty {
+                        Text(item.rationale)
+                            .font(.system(size: 13, weight: .regular))
+                            .foregroundStyle(mutedInk)
+                    }
+
+                    HStack(spacing: 8) {
+                        actionChip("Accept", isActive: item.status == "accepted", tint: accent) {
+                            Task { await model.setItemStatus(item.id, status: "accepted") }
+                        }
+                        .disabled(model.activePendingTurn != nil)
+
+                        actionChip("Reject", isActive: item.status == "rejected", tint: mutedInk) {
+                            Task { await model.setItemStatus(item.id, status: "rejected") }
+                        }
+                        .disabled(model.activePendingTurn != nil)
+                    }
+                }
+                .padding(14)
+                .background(Color(.systemGray6).opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(item.status == "accepted" ? accent.opacity(0.2) : cardStroke, lineWidth: 1)
+                )
+            }
+        }
+        .padding(16)
+        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(cardStroke, lineWidth: 1)
+        )
+    }
+
+    private func statusBadge(_ status: String) -> some View {
+        Text(status.capitalized)
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundStyle(status == "accepted" ? accent : ink.opacity(0.5))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                status == "accepted" ? accentWash : (status == "rejected" ? rejectedTint : Color(.systemGray6)),
+                in: Capsule(style: .continuous)
+            )
+    }
+
+    private func actionChip(
+        _ title: String,
+        isActive: Bool,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(title, action: action)
+            .buttonStyle(.plain)
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(isActive ? tint.opacity(0.12) : Color(.systemGray6), in: Capsule(style: .continuous))
+    }
+
+    // MARK: - Sheets
 
     private var claimsSheet: some View {
         NavigationStack {
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 16) {
-                    glassCard {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("Working Claims")
-                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                LazyVStack(spacing: 8) {
+                    if model.claimSummaries.isEmpty {
+                        VStack(spacing: 10) {
+                            Spacer().frame(height: 40)
+                            Image(systemName: "tray")
+                                .font(.system(size: 32, weight: .light))
+                                .foregroundStyle(mutedInk.opacity(0.4))
+                            Text("No saved claims")
+                                .font(.system(size: 17, weight: .semibold))
                                 .foregroundStyle(ink)
-                            Text("Switch between active jobs without losing the current chat flow.")
-                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                            Text("Open a claim and it will appear here.")
+                                .font(.system(size: 14))
                                 .foregroundStyle(mutedInk)
                         }
-                    }
-
-                    if model.claimSummaries.isEmpty {
-                        glassCard {
-                            modernEmptyState(
-                                systemImage: "tray",
-                                title: "No saved claims yet",
-                                body: "Open the current claim ID or create a new one and it will appear here for quick switching."
-                            )
-                        }
+                        .frame(maxWidth: .infinity)
                     } else {
-                        VStack(spacing: 12) {
-                            ForEach(model.claimSummaries) { summary in
-                                Button {
-                                    Task { await model.switchToClaim(summary) }
-                                } label: {
-                                    claimListRow(summary)
-                                }
-                                .buttonStyle(.plain)
+                        ForEach(model.claimSummaries) { summary in
+                            Button {
+                                Task { await model.switchToClaim(summary) }
+                            } label: {
+                                claimListRow(summary)
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 24)
+                .padding(.vertical, 12)
             }
-            .background(background)
+            .background(Color(.systemBackground))
             .navigationTitle("Claims")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Close") {
-                        model.showingClaims = false
-                    }
+                    Button("Close") { model.showingClaims = false }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("New") {
@@ -693,429 +667,317 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        showingSettings = false
-                    }
+                    Button("Done") { showingSettings = false }
                 }
             }
         }
         .presentationDetents([.medium, .large])
     }
 
+    private var directOutputSheet: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Direct Output")
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .foregroundStyle(ink)
+                        Text("Draft text with the model, review it, then send the sanitized text to the Raspberry Pi bridge.")
+                            .font(.system(size: 14, weight: .regular))
+                            .foregroundStyle(mutedInk)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack(spacing: 8) {
+                        directMetricChip(value: model.directCompose?.characterCount.description ?? "0", label: "Chars")
+                        directMetricChip(value: model.directCompose?.lineCount.description ?? "0", label: "Lines")
+                        directMetricChip(value: model.directCompose?.commandCountPreview.description ?? "0", label: "Cmds")
+                    }
+
+                    if let pending = model.pendingDirectCompose {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                                .tint(accent)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(pending.statusText)
+                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(ink)
+                                Text(pending.submittedPrompt)
+                                    .font(.system(size: 14, weight: .regular))
+                                    .foregroundStyle(mutedInk)
+                                    .lineLimit(4)
+                            }
+                            Spacer()
+                        }
+                        .padding(14)
+                        .background(accentWash, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
+
+                    if let compose = model.directCompose {
+                        if !compose.assistantReply.trimmed.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Assistant")
+                                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                                    .foregroundStyle(accent)
+                                Text(compose.assistantReply)
+                                    .font(.system(size: 15, weight: .regular))
+                                    .foregroundStyle(ink)
+                            }
+                            .padding(16)
+                            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(cardStroke, lineWidth: 1)
+                            )
+                        }
+
+                        if !compose.prompt.trimmed.isEmpty {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Prompt")
+                                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                                    .foregroundStyle(accent)
+                                Text(compose.prompt)
+                                    .font(.system(size: 14, weight: .regular))
+                                    .foregroundStyle(ink)
+                            }
+                            .padding(16)
+                            .background(Color(.systemGray6).opacity(0.55), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }
+                    }
+
+                    if !model.directTranscript.trimmed.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Transcript")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundStyle(accent)
+                            Text(model.directTranscript)
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundStyle(mutedInk)
+                        }
+                        .padding(16)
+                        .background(accentWash.opacity(0.7), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Typed Text")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundStyle(accent)
+
+                        TextEditor(text: $model.directOutputText)
+                            .font(.system(size: 15, weight: .regular))
+                            .foregroundStyle(ink)
+                            .scrollContentBackground(.hidden)
+                            .frame(minHeight: 220)
+                            .padding(12)
+                            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(cardStroke, lineWidth: 1)
+                            )
+                    }
+
+                    Toggle("Press Enter after typing", isOn: $model.directSendEnter)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(ink)
+
+                    Button {
+                        Task { await model.publishDirectOutput() }
+                    } label: {
+                        Label("Send To Pi", systemImage: "paperplane.fill")
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 13)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(model.canPublishDirectOutput ? accent : Color(.systemGray4))
+                    )
+                    .disabled(!model.canPublishDirectOutput)
+
+                    if let publish = model.directPublishResponse {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(accent)
+                            Text("Queued \(publish.publish.commandCount) typing commands (seq \(publish.publish.startingSeq)-\(publish.publish.endingSeq))")
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(ink)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(accentWash, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+
+                    if model.directCompose == nil && model.pendingDirectCompose == nil {
+                        VStack(spacing: 10) {
+                            Spacer().frame(height: 24)
+                            Image(systemName: "text.cursor")
+                                .font(.system(size: 34, weight: .light))
+                                .foregroundStyle(mutedInk.opacity(0.4))
+                            Text("No direct draft yet")
+                                .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                .foregroundStyle(ink)
+                            Text("Try something like “draft me an email that says thanks for the update and I’ll follow up tomorrow.”")
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundStyle(mutedInk)
+                                .multilineTextAlignment(.center)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 100)
+            }
+            .background(Color(.systemBackground))
+            .navigationTitle("Direct Output")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        showingDirectOutput = false
+                    }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                directComposerBar
+            }
+        }
+        .presentationDetents([.large])
+    }
+
+    private var directComposerBar: some View {
+        VStack(spacing: 8) {
+            if model.directAudioFileURL != nil {
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform")
+                        .foregroundStyle(accent)
+                        .font(.system(size: 14))
+                    Text("Voice prompt ready")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(mutedInk)
+                    Spacer()
+                    Button("Draft") {
+                        Task { await model.sendDirectVoicePrompt() }
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(accent)
+                    .disabled(!model.canComposeDirectVoice)
+
+                    Button {
+                        model.directAudioFileURL = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(mutedInk.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+
+            HStack(alignment: .bottom, spacing: 8) {
+                Button {
+                    Task { await model.toggleDirectRecording() }
+                } label: {
+                    Image(systemName: model.isRecording ? "stop.fill" : "mic.fill")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(model.isRecording ? .white : mutedInk)
+                        .frame(width: 36, height: 36)
+                        .background(
+                            model.isRecording ? Color.red : Color(.systemGray5),
+                            in: Circle()
+                        )
+                }
+                .buttonStyle(.plain)
+
+                TextField("Draft me an email, note, or message...", text: $model.directPromptDraft, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 16))
+                    .foregroundStyle(ink)
+                    .lineLimit(1 ... 5)
+                    .padding(.vertical, 10)
+
+                Button {
+                    Task { await model.sendDirectTextPrompt() }
+                } label: {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 32, height: 32)
+                        .background(
+                            model.canComposeDirectText ? ink : Color(.systemGray4),
+                            in: Circle()
+                        )
+                }
+                .buttonStyle(.plain)
+                .disabled(!model.canComposeDirectText)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(Color(.systemGray6))
+            )
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+    }
+
+    // MARK: - Overlays
+
     private var busyOverlay: some View {
         VStack(spacing: 10) {
             ProgressView()
                 .tint(accent)
-                .scaleEffect(1.1)
             Text(model.busyMessage)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(ink)
         }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 18)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .stroke(Color.white.opacity(0.5), lineWidth: 1)
-        )
-        .shadow(color: cardShadow, radius: 28, y: 14)
+        .padding(20)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private var background: some View {
-        ZStack {
-            LinearGradient(
-                colors: [canvas, canvasShade],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+    // MARK: - Claim List Row
 
-            Circle()
-                .fill(Color.white.opacity(0.62))
-                .frame(width: 280, height: 280)
-                .blur(radius: 18)
-                .offset(x: 138, y: -280)
+    private func claimListRow(_ summary: ClaimSummaryPayload) -> some View {
+        let isCurrent = summary.jobId == model.jobID.trimmed
 
-            Circle()
-                .fill(accent.opacity(0.16))
-                .frame(width: 280, height: 280)
-                .blur(radius: 38)
-                .offset(x: 130, y: -320)
-
-            Circle()
-                .fill(Color(red: 0.43, green: 0.63, blue: 0.88).opacity(0.16))
-                .frame(width: 260, height: 260)
-                .blur(radius: 42)
-                .offset(x: -140, y: -150)
-
-            Circle()
-                .fill(Color(red: 0.71, green: 0.84, blue: 1.0).opacity(0.14))
-                .frame(width: 320, height: 320)
-                .blur(radius: 60)
-                .offset(x: -160, y: 180)
-        }
-    }
-
-    private func glassCard<Content: View>(
-        cornerRadius: CGFloat = 28,
-        padding: CGFloat = 18,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            content()
-        }
-        .padding(padding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.56))
-        )
-        .background(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(.ultraThinMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(Color.white.opacity(0.58), lineWidth: 1)
-        )
-        .shadow(color: cardShadow, radius: 20, y: 10)
-    }
-
-    private func sectionLabel(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(.system(size: 11, weight: .bold, design: .rounded))
-            .kerning(0.8)
-            .foregroundStyle(mutedInk.opacity(0.9))
-    }
-
-    private func heroMetric(value: String, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(value)
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundStyle(ink)
-            Text(label.uppercased())
-                .font(.system(size: 10, weight: .bold, design: .rounded))
-                .foregroundStyle(mutedInk)
-                .kerning(0.6)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(Color.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(cardStroke, lineWidth: 1)
-        )
-    }
-
-    private func compactMetric(value: String, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(value)
-                .font(.system(size: 18, weight: .bold, design: .rounded))
-                .foregroundStyle(ink)
-            Text(label.uppercased())
-                .font(.system(size: 10, weight: .bold, design: .rounded))
-                .foregroundStyle(mutedInk)
-                .kerning(0.6)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(Color.white.opacity(0.72), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(cardStroke, lineWidth: 1)
-        )
-    }
-
-    private func metricCard(value: String, label: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(value)
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-                .foregroundStyle(tint)
-            Text(label)
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(mutedInk)
-                .textCase(.uppercase)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(Color.white.opacity(0.76), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(cardStroke, lineWidth: 1)
-        )
-    }
-
-    private func statusPill(label: String, systemImage: String) -> some View {
-        Label(label, systemImage: systemImage)
-            .font(.system(size: 12, weight: .bold, design: .rounded))
-            .foregroundStyle(accent)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(Color.white.opacity(0.84), in: Capsule(style: .continuous))
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(Color.white.opacity(0.62), lineWidth: 1)
-            )
-    }
-
-    private func prominentCapsuleButton(
-        title: String,
-        systemImage: String,
-        fill: Color,
-        foreground: Color,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 14, weight: .bold, design: .rounded))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(foreground)
-        .background(fill, in: Capsule(style: .continuous))
-    }
-
-    private func subtleCapsuleButton(
-        title: String,
-        systemImage: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 14, weight: .bold, design: .rounded))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(ink)
-        .background(Color.white.opacity(0.76), in: Capsule(style: .continuous))
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(cardStroke, lineWidth: 1)
-        )
-    }
-
-    private func actionButton(
-        _ title: String,
-        systemImage: String,
-        fill: Color,
-        foreground: Color,
-        outlined: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 14, weight: .bold, design: .rounded))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(foreground)
-        .background(fill, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(outlined ? cardStroke : Color.clear, lineWidth: 1)
-        )
-    }
-
-    private func modernEmptyState(systemImage: String, title: String, body: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Image(systemName: systemImage)
-                .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(accent)
-            Text(title)
-                .font(.system(size: 18, weight: .bold, design: .rounded))
-                .foregroundStyle(ink)
-            Text(body)
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(mutedInk)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private func messageBubble(
-        _ message: DraftMessagePayload,
-        fill: Color,
-        foreground: Color,
-        isLeading: Bool,
-        showsStroke: Bool
-    ) -> some View {
-        messageBubble(
-            text: message.text,
-            role: message.role,
-            fill: fill,
-            foreground: foreground,
-            isLeading: isLeading,
-            showsStroke: showsStroke
-        )
-    }
-
-    private func messageBubble(
-        text: String,
-        role: String,
-        fill: Color,
-        foreground: Color,
-        isLeading: Bool,
-        showsStroke: Bool
-    ) -> some View {
-        VStack(alignment: isLeading ? .leading : .trailing, spacing: 7) {
-            Text(text)
-                .font(.system(size: 15, weight: .medium, design: .rounded))
-                .multilineTextAlignment(isLeading ? .leading : .trailing)
-            Text(role.capitalized)
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .opacity(0.62)
-        }
-        .foregroundStyle(foreground)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(fill, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(showsStroke ? cardStroke : Color.clear, lineWidth: 1)
-        )
-    }
-
-    private func thinkingBubble(_ label: String) -> some View {
-        HStack(spacing: 10) {
-            ProgressView()
-                .tint(accent)
-                .scaleEffect(0.9)
-            VStack(alignment: .leading, spacing: 7) {
-                Text(label)
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                Text("Assistant")
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .opacity(0.62)
-            }
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(ink)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .background(assistantBubble, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(cardStroke, lineWidth: 1)
-        )
-    }
-
-    private func scopeGroupCard(_ group: DraftSectionPayload) -> some View {
-        glassCard(cornerRadius: 30, padding: 18) {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(group.room)
-                            .font(.system(size: 21, weight: .bold, design: .rounded))
-                            .foregroundStyle(ink)
-                        Text(group.note.uppercased())
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
+        return HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(summary.jobId)
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundStyle(ink)
+                    if isCurrent {
+                        Text("Active")
+                            .font(.system(size: 11, weight: .bold))
                             .foregroundStyle(accent)
-                            .kerning(0.8)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(accentWash, in: Capsule())
                     }
-
-                    Spacer()
-
-                    Text("\(group.items.count) items")
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundStyle(mutedInk)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
-                        .background(Color.white.opacity(0.74), in: Capsule(style: .continuous))
                 }
-
-                ForEach(group.items) { item in
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(alignment: .top, spacing: 10) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(item.approvedCode)
-                                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                                    .foregroundStyle(accent)
-
-                                Text(item.description)
-                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(ink)
-
-                                let details = detailLine(for: item)
-                                if !details.isEmpty {
-                                    Text(details)
-                                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                                        .foregroundStyle(mutedInk)
-                                }
-                            }
-
-                            Spacer(minLength: 10)
-                            statusBadge(item.status)
-                        }
-
-                        if !item.rationale.trimmed.isEmpty {
-                            Text(item.rationale)
-                                .font(.system(size: 13, weight: .medium, design: .rounded))
-                                .foregroundStyle(mutedInk)
-                        }
-
-                        HStack(spacing: 8) {
-                            actionChip(
-                                "Accept",
-                                tint: accent,
-                                fill: item.status == "accepted" ? accentWash : Color.white.opacity(0.84)
-                            ) {
-                                Task { await model.setItemStatus(item.id, status: "accepted") }
-                            }
-                            .disabled(model.activePendingTurn != nil)
-
-                            actionChip(
-                                "Reject",
-                                tint: ink.opacity(0.72),
-                                fill: item.status == "rejected" ? rejectedTint : Color.white.opacity(0.84)
-                            ) {
-                                Task { await model.setItemStatus(item.id, status: "rejected") }
-                            }
-                            .disabled(model.activePendingTurn != nil)
-                        }
-                    }
-                    .padding(16)
-                    .background(Color.white.opacity(0.78), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .stroke(item.status == "accepted" ? accent.opacity(0.18) : cardStroke, lineWidth: 1)
-                    )
-                }
+                Text(summary.latestMessagePreview.isEmpty ? "No conversation yet." : summary.latestMessagePreview)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(mutedInk)
+                    .lineLimit(2)
+                Text("\(summary.roomCount) rooms  \u{2022}  \(summary.itemCount) items  \u{2022}  \(summary.messageCount) turns")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(mutedInk.opacity(0.7))
             }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(mutedInk.opacity(0.4))
         }
+        .padding(16)
+        .background(Color(.systemGray6).opacity(0.5), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private func statusBadge(_ status: String) -> some View {
-        let accepted = status == "accepted"
-        let rejected = status == "rejected"
-
-        return Text(status.capitalized)
-            .font(.system(size: 11, weight: .bold, design: .rounded))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(
-                accepted ? accentWash : (rejected ? rejectedTint : Color.white.opacity(0.84)),
-                in: Capsule(style: .continuous)
-            )
-            .foregroundStyle(accepted ? accent : ink.opacity(0.66))
-    }
-
-    private func actionChip(_ title: String, tint: Color, fill: Color, action: @escaping () -> Void) -> some View {
-        Button(title, action: action)
-            .buttonStyle(.plain)
-            .font(.system(size: 13, weight: .bold, design: .rounded))
-            .foregroundStyle(tint)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(fill, in: Capsule(style: .continuous))
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(tint.opacity(0.10), lineWidth: 1)
-            )
-    }
+    // MARK: - Helpers
 
     private func detailLine(for item: DraftLineItemPayload) -> String {
         [
@@ -1124,198 +986,29 @@ struct ContentView: View {
             item.activity.isEmpty ? "" : "Act \(item.activity)",
             item.quantity.isEmpty ? "" : "Qty \(item.quantity)",
         ]
-            .map(\.trimmed)
-            .filter { !$0.isEmpty }
-            .joined(separator: " • ")
-    }
-
-    private func claimCard(_ summary: ClaimSummaryPayload) -> some View {
-        let isCurrent = summary.jobId == model.jobID.trimmed
-
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                Text(summary.jobId)
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                    .foregroundStyle(isCurrent ? Color.white : ink)
-                    .lineLimit(1)
-                Spacer(minLength: 10)
-                Image(systemName: isCurrent ? "checkmark.circle.fill" : "chevron.right.circle.fill")
-                    .foregroundStyle(isCurrent ? Color.white.opacity(0.88) : accent.opacity(0.72))
-            }
-
-            Text(summary.latestMessagePreview.isEmpty ? "No conversation yet." : summary.latestMessagePreview)
-                .font(.system(size: 12, weight: .medium, design: .rounded))
-                .foregroundStyle((isCurrent ? Color.white : ink).opacity(0.76))
-                .lineLimit(3)
-
-            Text("\(summary.roomCount) rooms • \(summary.itemCount) items • \(summary.messageCount) turns")
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundStyle(isCurrent ? Color.white.opacity(0.86) : mutedInk)
-        }
-        .padding(16)
-        .frame(width: 228, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(
-                    isCurrent
-                        ? LinearGradient(colors: [accent, accentDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        : LinearGradient(colors: [Color.white.opacity(0.82), Color.white.opacity(0.68)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(isCurrent ? Color.clear : cardStroke, lineWidth: 1)
-        )
-        .shadow(color: cardShadow.opacity(isCurrent ? 1.0 : 0.55), radius: 18, y: 8)
-    }
-
-    private func compactClaimChip(_ summary: ClaimSummaryPayload) -> some View {
-        let isCurrent = summary.jobId == model.jobID.trimmed
-
-        return HStack(spacing: 8) {
-            Text(summary.jobId)
-                .font(.system(size: 13, weight: .bold, design: .rounded))
-                .lineLimit(1)
-            if isCurrent {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 12, weight: .bold))
-            }
-        }
-        .foregroundStyle(isCurrent ? Color.white : ink)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            Capsule(style: .continuous)
-                .fill(
-                    isCurrent
-                        ? LinearGradient(colors: [accent, accentDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        : LinearGradient(colors: [Color.white.opacity(0.82), Color.white.opacity(0.68)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                )
-        )
-        .overlay(
-            Capsule(style: .continuous)
-                .stroke(isCurrent ? Color.clear : cardStroke, lineWidth: 1)
-        )
-    }
-
-    private func claimListRow(_ summary: ClaimSummaryPayload) -> some View {
-        let isCurrent = summary.jobId == model.jobID.trimmed
-
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(summary.jobId)
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                        .foregroundStyle(ink)
-                    Text(summary.bridgeId)
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .foregroundStyle(mutedInk)
-                }
-
-                Spacer()
-
-                if isCurrent {
-                    Text("Open")
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(accent)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
-                        .background(accentWash, in: Capsule(style: .continuous))
-                }
-            }
-
-            Text(summary.latestMessagePreview.isEmpty ? "No conversation yet." : summary.latestMessagePreview)
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(mutedInk)
-                .lineLimit(3)
-
-            Text("\(summary.roomCount) rooms • \(summary.itemCount) items • \(summary.messageCount) turns")
-                .font(.system(size: 12, weight: .bold, design: .rounded))
-                .foregroundStyle(ink.opacity(0.74))
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.74), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .stroke(cardStroke, lineWidth: 1)
-        )
+        .map(\.trimmed)
+        .filter { !$0.isEmpty }
+        .joined(separator: " \u{2022} ")
     }
 
     private func planSummaryText(_ plan: PlanResponse) -> String {
-        if plan.unresolvedCount > 0 {
-            return "\(plan.unresolvedCount) unresolved"
-        }
-        if plan.needsReviewCount > 0 {
-            return "\(plan.needsReviewCount) need review"
-        }
+        if plan.unresolvedCount > 0 { return "\(plan.unresolvedCount) unresolved" }
+        if plan.needsReviewCount > 0 { return "\(plan.needsReviewCount) need review" }
         return "Ready to publish"
     }
 
-    private var workflowStateLabel: String {
-        if model.publishResponse != nil {
-            return "Queued"
+    private func directMetricChip(value: String, label: String) -> some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundStyle(ink)
+            Text(label.uppercased())
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(mutedInk)
+                .kerning(0.5)
         }
-        if model.planResponse != nil {
-            return "Planned"
-        }
-        if model.draft != nil {
-            return "Live Draft"
-        }
-        return "Idle"
-    }
-
-    private var workflowStateIcon: String {
-        if model.publishResponse != nil {
-            return "paperplane.fill"
-        }
-        if model.planResponse != nil {
-            return "bolt.fill"
-        }
-        if model.draft != nil {
-            return "waveform.path.ecg"
-        }
-        return "circle.dashed"
-    }
-
-    private var currentClaimTitle: String {
-        let title = model.jobID.trimmed
-        return title.isEmpty ? "Untitled Claim" : title
-    }
-
-    private var heroDescription: String {
-        if let publish = model.publishResponse {
-            return "This draft is queued to bridge \(publish.bridgeId). Keep the claim open if you want to revise and republish."
-        }
-
-        if let preview = model.currentClaimSummary?.latestMessagePreview.trimmed, !preview.isEmpty {
-            return preview
-        }
-
-        if let lastMessage = model.draft?.messages.last?.text.trimmed, !lastMessage.isEmpty {
-            return lastMessage
-        }
-
-        return "Talk through the loss naturally, let the backend agent structure the draft, then review room sections before they reach the Raspberry Pi."
-    }
-
-    private var roomCount: Int {
-        max(model.rooms.count - 1, 0)
-    }
-
-    private var acceptedCount: Int {
-        model.draft?.items.filter { $0.status == "accepted" }.count ?? 0
-    }
-
-    private var rejectedCount: Int {
-        model.draft?.items.filter { $0.status == "rejected" }.count ?? 0
-    }
-
-    private var pendingCount: Int {
-        max((model.draft?.items.count ?? 0) - acceptedCount - rejectedCount, 0)
-    }
-
-    private var messageCount: Int {
-        model.draft?.messages.count ?? 0
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(Color(.systemGray6).opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
