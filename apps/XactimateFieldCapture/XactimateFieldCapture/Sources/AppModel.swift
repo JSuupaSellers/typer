@@ -90,9 +90,26 @@ final class FieldCaptureAppModel: ObservableObject {
     }
 
     var canPublish: Bool {
-        guard activePendingTurn == nil else { return false }
-        guard let planResponse else { return false }
-        return planResponse.needsReviewCount == 0 && planResponse.unresolvedCount == 0 && planResponse.approvedCount > 0
+        activePendingTurn == nil && draft?.items.contains(where: { $0.status == "accepted" }) == true
+    }
+
+    var publishStatusMessage: String? {
+        guard canPublish else {
+            if activePendingTurn != nil {
+                return "Wait for the current claim update to finish."
+            }
+            return "Accept at least one line item to publish."
+        }
+        guard let planResponse else {
+            return "Publish will run a plan check first."
+        }
+        if planResponse.unresolvedCount > 0 {
+            return "\(planResponse.unresolvedCount) item\(planResponse.unresolvedCount == 1 ? "" : "s") still unresolved."
+        }
+        if planResponse.needsReviewCount > 0 {
+            return "\(planResponse.needsReviewCount) item\(planResponse.needsReviewCount == 1 ? "" : "s") still need review."
+        }
+        return "Ready to publish."
     }
 
     var canComposeDirectText: Bool {
@@ -330,6 +347,39 @@ final class FieldCaptureAppModel: ObservableObject {
             self.syncSelectedRoom()
             try await self.reloadClaimSummaries()
         }
+    }
+
+    func preparePublish() async -> Bool {
+        guard canPublish else {
+            errorMessage = publishStatusMessage ?? "This claim is not ready to publish yet."
+            return false
+        }
+
+        if planResponse == nil {
+            await planDraft()
+        }
+
+        guard let planResponse else {
+            errorMessage = "The claim could not be planned for publish."
+            return false
+        }
+
+        if planResponse.unresolvedCount > 0 {
+            errorMessage = "\(planResponse.unresolvedCount) item\(planResponse.unresolvedCount == 1 ? "" : "s") still unresolved. Review the scope before publishing."
+            return false
+        }
+
+        if planResponse.needsReviewCount > 0 {
+            errorMessage = "\(planResponse.needsReviewCount) item\(planResponse.needsReviewCount == 1 ? "" : "s") still need review before publishing."
+            return false
+        }
+
+        if planResponse.approvedCount <= 0 {
+            errorMessage = "There are no approved items ready to publish."
+            return false
+        }
+
+        return true
     }
 
     func loadClaims(silently: Bool = false) async {

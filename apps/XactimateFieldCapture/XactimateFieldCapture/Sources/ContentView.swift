@@ -293,7 +293,11 @@ struct ContentView: View {
                     .disabled(!model.canPlan)
 
                     scopeActionButton("Publish", icon: "paperplane.fill", style: .dark) {
-                        showingPublishConfirm = true
+                        Task {
+                            if await model.preparePublish() {
+                                showingPublishConfirm = true
+                            }
+                        }
                     }
                     .disabled(!model.canPublish)
                 }
@@ -309,6 +313,19 @@ struct ContentView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background(accentWash, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+
+                if let publishStatusMessage = model.publishStatusMessage {
+                    HStack(spacing: 8) {
+                        Image(systemName: model.planResponse == nil ? "bolt.horizontal.circle" : "info.circle")
+                            .foregroundStyle(accent)
+                        Text(publishStatusMessage)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(mutedInk)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color(.systemGray6).opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
 
                 if let publish = model.publishResponse {
