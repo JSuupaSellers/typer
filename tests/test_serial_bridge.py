@@ -49,6 +49,17 @@ class SerialTransportTests(unittest.TestCase):
         self.assertEqual(fake.writes, [b"COMBO:CTRL+C\n", b"COMBO:CTRL+C\n"])
         self.assertEqual(fake.flush_count, 1)
 
+    def test_preserves_single_character_key_case(self) -> None:
+        transport = SerialTransport(AppConfig())
+        fake = _FakeSerial()
+        transport._serial = fake  # type: ignore[attr-defined]
+
+        command = KeyboardCommand.from_mapping(22, {"kind": "key", "key": "a"})
+
+        transport.send(command)
+
+        self.assertEqual(fake.writes, [b"KEY:a\n"])
+
 
 if __name__ == "__main__":
     unittest.main()

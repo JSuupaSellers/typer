@@ -6,7 +6,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request
 
 from .config import ProducerConfig
 from .drafts import DraftCoordinator
-from .direct_output import DirectOutputService
+from .direct_output import BridgeNotReadyError, DirectOutputService
 from .models import EstimateJob
 from .service import ProducerReviewRequiredError, ProducerService
 from .transcription import (
@@ -208,6 +208,8 @@ def create_app(
                 title=title,
                 append_enter=append_enter,
             )
+        except BridgeNotReadyError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except RuntimeError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
         except Exception as exc:

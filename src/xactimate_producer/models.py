@@ -407,6 +407,10 @@ class QueueSnapshot:
     last_applied_seq: int
     max_published_seq: int
     last_reserved_seq: int
+    pending_command_count: int
+    bridge_online: bool
+    bridge_ready: bool
+    bridge_last_seen_unix_s: float
     next_seq: int
     commands_path: str
     state_path: str
@@ -417,6 +421,10 @@ class QueueSnapshot:
             "last_applied_seq": self.last_applied_seq,
             "max_published_seq": self.max_published_seq,
             "last_reserved_seq": self.last_reserved_seq,
+            "pending_command_count": self.pending_command_count,
+            "bridge_online": self.bridge_online,
+            "bridge_ready": self.bridge_ready,
+            "bridge_last_seen_unix_s": self.bridge_last_seen_unix_s,
             "next_seq": self.next_seq,
             "commands_path": self.commands_path,
             "state_path": self.state_path,

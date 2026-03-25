@@ -146,12 +146,26 @@ class FakeRuntimeClient:
 
 
 class FakePublisher:
-    def __init__(self, *, last_applied_seq: int = 0, max_published_seq: int = 0, last_reserved_seq: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        last_applied_seq: int = 0,
+        max_published_seq: int = 0,
+        last_reserved_seq: int = 0,
+        pending_command_count: int | None = None,
+        bridge_online: bool = True,
+        bridge_ready: bool | None = None,
+    ) -> None:
+        derived_pending = max((max_published_seq if pending_command_count is None else last_applied_seq + pending_command_count) - last_applied_seq, 0)
         self.snapshot_value = QueueSnapshot(
             bridge_id="default",
             last_applied_seq=last_applied_seq,
             max_published_seq=max_published_seq,
             last_reserved_seq=last_reserved_seq,
+            pending_command_count=derived_pending,
+            bridge_online=bridge_online,
+            bridge_ready=bridge_online if bridge_ready is None else bridge_ready,
+            bridge_last_seen_unix_s=1.0,
             next_seq=max(last_applied_seq, max_published_seq, last_reserved_seq) + 1,
             commands_path="/bridges/default/commands",
             state_path="/bridges/default/state",
@@ -165,6 +179,10 @@ class FakePublisher:
             last_applied_seq=self.snapshot_value.last_applied_seq,
             max_published_seq=self.snapshot_value.max_published_seq,
             last_reserved_seq=self.snapshot_value.last_reserved_seq,
+            pending_command_count=self.snapshot_value.pending_command_count,
+            bridge_online=self.snapshot_value.bridge_online,
+            bridge_ready=self.snapshot_value.bridge_ready,
+            bridge_last_seen_unix_s=self.snapshot_value.bridge_last_seen_unix_s,
             next_seq=max(
                 self.snapshot_value.last_applied_seq,
                 self.snapshot_value.max_published_seq,
@@ -180,8 +198,15 @@ class FakePublisher:
         self.snapshot_value = QueueSnapshot(
             bridge_id=bridge_id,
             last_applied_seq=self.snapshot_value.last_applied_seq,
-            max_published_seq=self.snapshot_value.max_published_seq,
+            max_published_seq=max(self.snapshot_value.max_published_seq, self.last_reserved_start + command_count - 1),
             last_reserved_seq=self.last_reserved_start + command_count - 1,
+            pending_command_count=max(
+                self.snapshot_value.pending_command_count,
+                (self.last_reserved_start + command_count - 1) - self.snapshot_value.last_applied_seq,
+            ),
+            bridge_online=self.snapshot_value.bridge_online,
+            bridge_ready=False,
+            bridge_last_seen_unix_s=self.snapshot_value.bridge_last_seen_unix_s,
             next_seq=self.last_reserved_start + command_count,
             commands_path=f"/bridges/{bridge_id}/commands",
             state_path=f"/bridges/{bridge_id}/state",
@@ -781,7 +806,7 @@ class ProducerTests(unittest.TestCase):
             "max_output_tokens",
         )
 
-    def test_direct_output_compile_turns_multiline_text_into_text_and_enter_commands(self) -> None:
+    def test_direct_output_compile_turns_multiline_text_into_individual_keystrokes(self) -> None:
         service = DirectOutputService(self.config, FakePublisher())
 
         commands = service.compile_text_commands(
@@ -790,25 +815,39 @@ class ProducerTests(unittest.TestCase):
         )
 
         self.assertEqual(commands[0].kind, "upall")
-        self.assertEqual(commands[1].kind, "text")
-        self.assertEqual(commands[1].text, "Hello there")
+        self.assertEqual(commands[1].kind, "key")
+        self.assertEqual(commands[1].key, "H")
         self.assertEqual(commands[2].kind, "key")
-        self.assertEqual(commands[2].key, "ENTER")
-        self.assertEqual(commands[3].kind, "key")
-        self.assertEqual(commands[3].key, "ENTER")
-        self.assertEqual(commands[4].kind, "text")
-        self.assertEqual(commands[4].text, "Second paragraph")
+        self.assertEqual(commands[2].key, "e")
+        self.assertTrue(any(command.key == "ENTER" for command in commands if command.kind == "key"))
         self.assertEqual(commands[-1].kind, "key")
         self.assertEqual(commands[-1].key, "ENTER")
 
-    def test_direct_output_compile_chunks_long_lines_for_teensy_buffer_safety(self) -> None:
+    def test_direct_output_compile_slows_long_text_with_individual_keystrokes(self) -> None:
         service = DirectOutputService(self.config, FakePublisher())
 
         commands = service.compile_text_commands(text="A" * 600)
-        text_commands = [command for command in commands if command.kind == "text"]
+        key_commands = [command for command in commands if command.kind == "key"]
 
-        self.assertGreater(len(text_commands), 1)
-        self.assertTrue(all(len(command.text) <= 240 for command in text_commands))
+        self.assertEqual(len(key_commands), 600)
+        self.assertTrue(all(command.key == "A" for command in key_commands))
+        self.assertTrue(all(command.delay_after_ms >= self.config.direct_output_long_key_delay_ms for command in key_commands))
+
+    def test_direct_output_publish_rejects_busy_or_offline_bridge(self) -> None:
+        busy_service = DirectOutputService(
+            self.config,
+            FakePublisher(last_applied_seq=10, max_published_seq=14, pending_command_count=4, bridge_ready=False),
+        )
+        offline_service = DirectOutputService(
+            self.config,
+            FakePublisher(bridge_online=False, bridge_ready=False),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "still busy"):
+            busy_service.publish_text(bridge_id="default", text="busy")
+
+        with self.assertRaisesRegex(RuntimeError, "offline or stale"):
+            offline_service.publish_text(bridge_id="default", text="offline")
 
     def test_direct_output_api_compose_and_publish(self) -> None:
         service = ProducerService(self.config, FakeRuntimeClient(), FakePublisher())

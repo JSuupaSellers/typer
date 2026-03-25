@@ -9,7 +9,7 @@ from uuid import uuid4
 import httpx
 
 from .config import ProducerConfig
-from .models import CompiledCommand, PublishResult
+from .models import CompiledCommand, PublishResult, QueueSnapshot
 
 
 def _now_stamp() -> str:
@@ -56,6 +56,9 @@ def _output_text(response: dict[str, Any]) -> str:
 
 
 class DirectOutputPublisherProtocol(Protocol):
+    def snapshot(self, bridge_id: str) -> QueueSnapshot:
+        ...
+
     def publish_commands(
         self,
         *,
@@ -65,6 +68,10 @@ class DirectOutputPublisherProtocol(Protocol):
         approved_codes: tuple[str, ...] = (),
     ) -> PublishResult:
         ...
+
+
+class BridgeNotReadyError(RuntimeError):
+    pass
 
 
 @dataclass(frozen=True)
@@ -207,6 +214,15 @@ class DirectOutputService:
             raise RuntimeError("There is no text to send to the Pi.")
 
         bridge = bridge_id.strip() or "default"
+        snapshot = self._publisher.snapshot(bridge)
+        if not snapshot.bridge_online:
+            raise BridgeNotReadyError(
+                f"Bridge {bridge} is offline or stale. Make sure the Pi bridge is running before sending direct output."
+            )
+        if not snapshot.bridge_ready:
+            raise BridgeNotReadyError(
+                f"Bridge {bridge} is still busy with {snapshot.pending_command_count} pending command(s). Wait for it to go idle."
+            )
         commands = self.compile_text_commands(
             text=normalized_text,
             starting_seq=1,
@@ -240,11 +256,14 @@ class DirectOutputService:
 
         commands: list[CompiledCommand] = []
         seq = starting_seq
+        key_delay = self._config.direct_output_key_delay_ms
+        if len(normalized) >= self._config.direct_output_long_text_threshold_chars:
+            key_delay = self._config.direct_output_long_key_delay_ms
         commands.append(
             CompiledCommand(
                 seq=seq,
                 kind="upall",
-                delay_after_ms=25,
+                delay_after_ms=self._config.direct_output_initial_delay_ms,
                 metadata={"mode": "direct_output", "command_role": "reset_modifiers"},
             )
         )
@@ -252,25 +271,24 @@ class DirectOutputService:
 
         lines = normalized.split("\n")
         for index, line in enumerate(lines):
-            if line:
-                for chunk in self._chunk_line(line):
-                    commands.append(
-                        CompiledCommand(
-                            seq=seq,
-                            kind="text",
-                            text=chunk,
-                            delay_after_ms=40,
-                            metadata={"mode": "direct_output", "command_role": "type_text"},
-                        )
+            for character in line:
+                commands.append(
+                    CompiledCommand(
+                        seq=seq,
+                        kind="key",
+                        key=self._key_token_for_character(character),
+                        delay_after_ms=self._delay_for_character(character, key_delay),
+                        metadata={"mode": "direct_output", "command_role": "type_key"},
                     )
-                    seq += 1
+                )
+                seq += 1
             if index < len(lines) - 1:
                 commands.append(
                     CompiledCommand(
                         seq=seq,
                         kind="key",
                         key="ENTER",
-                        delay_after_ms=80,
+                        delay_after_ms=self._config.direct_output_line_break_delay_ms,
                         metadata={"mode": "direct_output", "command_role": "line_break"},
                     )
                 )
@@ -282,7 +300,7 @@ class DirectOutputService:
                     seq=seq,
                     kind="key",
                     key="ENTER",
-                    delay_after_ms=100,
+                    delay_after_ms=self._config.direct_output_submit_delay_ms,
                     metadata={"mode": "direct_output", "command_role": "submit"},
                 )
             )
@@ -314,13 +332,33 @@ class DirectOutputService:
 
     @staticmethod
     def _normalize_text(text: str) -> str:
-        return text.replace("\r\n", "\n").replace("\r", "\n").strip("\n")
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        replacements = {
+            "\u00a0": " ",
+            "\u2018": "'",
+            "\u2019": "'",
+            "\u201c": '"',
+            "\u201d": '"',
+            "\u2013": "-",
+            "\u2014": "-",
+        }
+        for original, replacement in replacements.items():
+            normalized = normalized.replace(original, replacement)
+        return normalized.strip("\n")
 
     @staticmethod
-    def _chunk_line(line: str, chunk_size: int = 240) -> tuple[str, ...]:
-        if len(line) <= chunk_size:
-            return (line,)
-        return tuple(line[index : index + chunk_size] for index in range(0, len(line), chunk_size))
+    def _key_token_for_character(character: str) -> str:
+        if character == "\t":
+            return "TAB"
+        return character
+
+    @staticmethod
+    def _delay_for_character(character: str, default_delay_ms: int) -> int:
+        if character == " ":
+            return max(default_delay_ms // 2, 10)
+        if character in {".", ",", "!", "?", ";", ":"}:
+            return default_delay_ms + 12
+        return default_delay_ms
 
     @staticmethod
     def _system_prompt() -> str:

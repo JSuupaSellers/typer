@@ -50,6 +50,13 @@ def _guess_kind(payload: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _format_key_token(value: str) -> str:
+    trimmed = value.strip("\r\n")
+    if len(trimmed) == 1:
+        return trimmed
+    return trimmed.strip().upper()
+
+
 @dataclass(slots=True, frozen=True)
 class KeyboardCommand:
     seq: int
@@ -133,13 +140,15 @@ class KeyboardCommand:
 
         repeat = max(self.repeat, 1)
         if self.kind == "text":
-            safe_text = (self.text or "").replace("\r", " ").replace("\n", " ")
-            line = f"TEXT:{safe_text}"
+            safe_text = (self.text or "").replace("\r", "")
+            expanded = tuple(f"KEY:{char}" for char in safe_text if char != "\n")
+            return expanded * repeat
         elif self.kind == "combo":
-            combo = "+".join(part for part in (*self.modifiers, (self.key or "").strip().upper()) if part)
+            combo_key = (self.key or "").strip()
+            combo = "+".join(part for part in (*self.modifiers, combo_key.upper()) if part)
             line = f"COMBO:{combo}"
         elif self.kind == "key":
-            line = f"KEY:{(self.key or '').strip().upper()}"
+            line = f"KEY:{_format_key_token(self.key or '')}"
         elif self.kind == "down":
             line = f"DOWN:{(self.key or '').strip().upper()}"
         elif self.kind == "upall":

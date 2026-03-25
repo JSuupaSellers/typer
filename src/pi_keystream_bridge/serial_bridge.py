@@ -35,9 +35,12 @@ class SerialTransport:
         self.open()
         if self._serial is None:
             raise serial.SerialException("serial device is not available")
-        for line in command.to_teensy_lines():
+        lines = command.to_teensy_lines()
+        for index, line in enumerate(lines):
             encoded = line.encode("utf-8") + b"\n"
             self._serial.write(encoded)
+            if index < len(lines) - 1 and self._config.serial_inter_line_delay_ms > 0:
+                time.sleep(self._config.serial_inter_line_delay_ms / 1000.0)
         self._serial.flush()
         if command.delay_after_ms > 0:
             time.sleep(command.delay_after_ms / 1000.0)

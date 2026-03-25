@@ -20,17 +20,36 @@ def _as_int(value: Any) -> int:
 
 
 def _max_sequence(payload: Any) -> int:
-    if not isinstance(payload, dict):
-        return 0
     max_seq = 0
+    for seq in _sequence_values(payload):
+        max_seq = max(max_seq, seq)
+    return max_seq
+
+
+def _sequence_values(payload: Any) -> list[int]:
+    if isinstance(payload, list):
+        values: list[int] = []
+        for index, value in enumerate(payload):
+            seq = 0
+            if isinstance(value, dict):
+                seq = _as_int(value.get("seq"))
+            if seq <= 0:
+                seq = _as_int(index)
+            if seq > 0:
+                values.append(seq)
+        return values
+    if not isinstance(payload, dict):
+        return []
+    values: list[int] = []
     for key, value in payload.items():
         seq = 0
         if isinstance(value, dict):
             seq = _as_int(value.get("seq"))
         if seq <= 0:
             seq = _as_int(key)
-        max_seq = max(max_seq, seq)
-    return max_seq
+        if seq > 0:
+            values.append(seq)
+    return values
 
 
 class FirebaseCommandPublisher:
@@ -43,9 +62,22 @@ class FirebaseCommandPublisher:
             state_payload = state_ref.get() or {}
 
         last_applied_seq = _as_int(state_payload.get("last_applied_seq"))
-        max_published_seq = _max_sequence(commands_payload)
+        sequences = _sequence_values(commands_payload)
+        max_published_seq = max(sequences, default=0)
+        pending_command_count = sum(1 for seq in sequences if seq > last_applied_seq)
         producer_state = state_payload.get("producer", {}) if isinstance(state_payload, dict) else {}
         last_reserved_seq = _as_int(producer_state.get("last_reserved_seq"))
+        bridge_state = state_payload.get("bridge", {}) if isinstance(state_payload, dict) else {}
+        bridge_last_seen_unix_s = float(bridge_state.get("last_seen_unix_s", 0.0) or 0.0)
+        bridge_online = bool(
+            isinstance(bridge_state, dict)
+            and bridge_state.get("running")
+            and bridge_state.get("firebase_connected")
+            and bridge_state.get("serial_connected")
+            and bridge_last_seen_unix_s > 0
+            and (time() - bridge_last_seen_unix_s) <= self._config.bridge_ready_stale_after_s
+        )
+        bridge_ready = bridge_online and pending_command_count == 0
         next_seq = max(last_applied_seq, max_published_seq, last_reserved_seq) + 1
 
         return QueueSnapshot(
@@ -53,6 +85,10 @@ class FirebaseCommandPublisher:
             last_applied_seq=last_applied_seq,
             max_published_seq=max_published_seq,
             last_reserved_seq=last_reserved_seq,
+            pending_command_count=pending_command_count,
+            bridge_online=bridge_online,
+            bridge_ready=bridge_ready,
+            bridge_last_seen_unix_s=bridge_last_seen_unix_s,
             next_seq=next_seq,
             commands_path=self._config.commands_path(bridge_id),
             state_path=self._config.state_path(bridge_id),

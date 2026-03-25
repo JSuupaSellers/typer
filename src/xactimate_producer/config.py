@@ -131,10 +131,17 @@ class ProducerConfig:
     request_timeout_s: float = 300.0
     draft_storage_dir: str = "runtime/drafts"
     policy_path: str = "claim_policy.default.json"
+    bridge_ready_stale_after_s: float = 12.0
     firebase_credentials_path: str = ""
     firebase_database_url: str = ""
     firebase_commands_path_template: str = "/bridges/{bridge_id}/commands"
     firebase_state_path_template: str = "/bridges/{bridge_id}/state"
+    direct_output_initial_delay_ms: int = 40
+    direct_output_key_delay_ms: int = 24
+    direct_output_long_key_delay_ms: int = 42
+    direct_output_long_text_threshold_chars: int = 280
+    direct_output_line_break_delay_ms: int = 85
+    direct_output_submit_delay_ms: int = 110
     recommendation_limit: int = 5
     auto_approve_min_confidence: str = "high"
     workflow_profile: WorkflowProfile = field(default_factory=default_workflow_profile)
@@ -155,6 +162,7 @@ class ProducerConfig:
             request_timeout_s=max(float(raw.get("request_timeout_s", 300.0) or 300.0), 1.0),
             draft_storage_dir=str(raw.get("draft_storage_dir", "runtime/drafts")).strip() or "runtime/drafts",
             policy_path=str(raw.get("policy_path", "claim_policy.default.json")).strip() or "claim_policy.default.json",
+            bridge_ready_stale_after_s=max(float(raw.get("bridge_ready_stale_after_s", 12.0) or 12.0), 1.0),
             firebase_credentials_path=str(raw.get("firebase_credentials_path", "")).strip(),
             firebase_database_url=str(raw.get("firebase_database_url", "")).strip(),
             firebase_commands_path_template=_normalize_db_path_template(
@@ -163,6 +171,15 @@ class ProducerConfig:
             firebase_state_path_template=_normalize_db_path_template(
                 str(raw.get("firebase_state_path_template", "/bridges/{bridge_id}/state"))
             ),
+            direct_output_initial_delay_ms=max(int(raw.get("direct_output_initial_delay_ms", 40) or 40), 0),
+            direct_output_key_delay_ms=max(int(raw.get("direct_output_key_delay_ms", 24) or 24), 0),
+            direct_output_long_key_delay_ms=max(int(raw.get("direct_output_long_key_delay_ms", 42) or 42), 0),
+            direct_output_long_text_threshold_chars=max(
+                int(raw.get("direct_output_long_text_threshold_chars", 280) or 280),
+                1,
+            ),
+            direct_output_line_break_delay_ms=max(int(raw.get("direct_output_line_break_delay_ms", 85) or 85), 0),
+            direct_output_submit_delay_ms=max(int(raw.get("direct_output_submit_delay_ms", 110) or 110), 0),
             recommendation_limit=max(int(raw.get("recommendation_limit", 5) or 5), 1),
             auto_approve_min_confidence=_normalize_confidence(str(raw.get("auto_approve_min_confidence", "high"))),
             workflow_profile=profile,
@@ -215,6 +232,8 @@ class ProducerConfig:
             errors.append("openai_base_url is required")
         if self.request_timeout_s <= 0:
             errors.append("request_timeout_s must be positive")
+        if self.bridge_ready_stale_after_s <= 0:
+            errors.append("bridge_ready_stale_after_s must be positive")
         if not self.draft_storage_dir:
             errors.append("draft_storage_dir is required")
         if not self.policy_path:
@@ -227,6 +246,8 @@ class ProducerConfig:
             errors.append("firebase_state_path_template is required")
         if self.recommendation_limit <= 0:
             errors.append("recommendation_limit must be positive")
+        if self.direct_output_long_text_threshold_chars <= 0:
+            errors.append("direct_output_long_text_threshold_chars must be positive")
         if not self.workflow_profile.per_item:
             errors.append("workflow_profile.per_item must include at least one step")
         return errors

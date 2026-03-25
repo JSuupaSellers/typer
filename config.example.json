@@ -6,10 +6,12 @@
   "serial_port": "/dev/ttyACM0",
   "serial_baudrate": 115200,
   "serial_write_timeout_s": 1.0,
+  "serial_inter_line_delay_ms": 8,
   "serial_reconnect_interval_s": 2.0,
   "state_file": "runtime/bridge-state.json",
   "log_limit": 250,
   "ui_refresh_ms": 250,
-  "ack_debounce_ms": 250
+  "ack_debounce_ms": 250,
+  "bridge_heartbeat_interval_s": 2.0,
+  "queue_cleanup_enabled": true
 }
-

@@ -81,11 +81,12 @@ def _next_start_seq(commands_snapshot: object, state_snapshot: object, explicit_
     if explicit_start > 0:
         return explicit_start
     state = state_snapshot if isinstance(state_snapshot, dict) else {}
+    producer = state.get("producer", {}) if isinstance(state.get("producer", {}), dict) else {}
     floor = max(
         _max_command_seq(commands_snapshot),
         _extract_int(state.get("last_applied_seq"), 0),
-        _extract_int(state.get("last_reserved_seq"), 0),
-        _extract_int(state.get("max_published_seq"), 0),
+        _extract_int(producer.get("last_reserved_seq"), 0),
+        _extract_int(state.get("last_published_seq"), 0),
     )
     return floor + 1
 

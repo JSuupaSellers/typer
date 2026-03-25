@@ -30,6 +30,7 @@ class FirebaseCommandSource:
         self._listener: Any = None
         self._active = threading.Event()
         self._write_lock = threading.Lock()
+        self._last_cleared_seq = 0
 
     def start(self, callback: Callable[[list[KeyboardCommand]], None]) -> None:
         if self._active.is_set():
@@ -44,6 +45,12 @@ class FirebaseCommandSource:
         self._commands_ref = db.reference(self._config.firebase_commands_path, app=self._app)
         if self._config.firebase_state_path:
             self._state_ref = db.reference(self._config.firebase_state_path, app=self._app)
+            state_payload = self._state_ref.get() or {}
+            if isinstance(state_payload, dict):
+                self._last_cleared_seq = max(
+                    int(state_payload.get("last_cleared_seq", 0) or 0),
+                    int(state_payload.get("last_applied_seq", 0) or 0),
+                )
         self._active.set()
         self._listener = self._commands_ref.listen(lambda event: self._handle_event(event, callback))
         self._on_status(True)
@@ -65,12 +72,29 @@ class FirebaseCommandSource:
         if not self._state_ref:
             return
         with self._write_lock:
-            self._state_ref.update(
-                {
-                    "last_applied_seq": int(seq),
-                    "last_applied_at_unix_s": time(),
+            payload = {
+                "last_applied_seq": int(seq),
+                "last_applied_at_unix_s": time(),
+            }
+            if self._config.queue_cleanup_enabled:
+                payload["last_cleared_seq"] = int(seq)
+            self._state_ref.update(payload)
+            if self._config.queue_cleanup_enabled and self._commands_ref is not None and seq > self._last_cleared_seq:
+                cleanup_payload = {
+                    str(current_seq): None
+                    for current_seq in range(self._last_cleared_seq + 1, int(seq) + 1)
                 }
-            )
+                if cleanup_payload:
+                    self._commands_ref.update(cleanup_payload)
+                    self._last_cleared_seq = int(seq)
+
+    def publish_bridge_status(self, payload: dict[str, Any]) -> None:
+        if not self._state_ref:
+            return
+        status_payload = dict(payload)
+        status_payload["last_seen_unix_s"] = time()
+        with self._write_lock:
+            self._state_ref.update({"bridge": status_payload})
 
     def _handle_event(self, event: Any, callback: Callable[[list[KeyboardCommand]], None]) -> None:
         if not self._active.is_set():
