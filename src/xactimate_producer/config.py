@@ -101,16 +101,11 @@ class WorkflowProfile:
 
 def default_workflow_profile() -> WorkflowProfile:
     return WorkflowProfile(
-        note_item=(
-            WorkflowStepTemplate(kind="key", key="F9", delay_after_ms=250),
-            WorkflowStepTemplate(kind="text", text="{note}", delay_after_ms=90),
-            WorkflowStepTemplate(kind="key", key="ENTER", delay_after_ms=250),
-        ),
         per_item=(
-            WorkflowStepTemplate(kind="key", key="F6", delay_after_ms=250),
-            WorkflowStepTemplate(kind="text", text="{code}", delay_after_ms=90),
-            WorkflowStepTemplate(kind="key", key="ENTER", delay_after_ms=350),
-            WorkflowStepTemplate(kind="key", key="TAB", when="has_quantity", delay_after_ms=120),
+            WorkflowStepTemplate(kind="text", text="{category}", delay_after_ms=90),
+            WorkflowStepTemplate(kind="key", key="TAB", delay_after_ms=120),
+            WorkflowStepTemplate(kind="text", text="{selector}", delay_after_ms=90),
+            WorkflowStepTemplate(kind="key", key="TAB", delay_after_ms=120),
             WorkflowStepTemplate(kind="text", text="{quantity}", when="has_quantity", delay_after_ms=90),
             WorkflowStepTemplate(kind="key", key="ENTER", delay_after_ms=300),
             WorkflowStepTemplate(kind="delay", duration_ms=150),

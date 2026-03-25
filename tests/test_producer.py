@@ -374,12 +374,16 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(compiled.starting_seq, 25)
         self.assertEqual(compiled.ending_seq, 38)
         self.assertEqual(compiled.command_count, 14)
-        self.assertEqual(compiled.commands[0].key, "F6")
-        self.assertEqual(compiled.commands[1].text, "DRY/PCH")
+        self.assertEqual(compiled.commands[0].text, "DRY")
+        self.assertEqual(compiled.commands[1].key, "TAB")
+        self.assertEqual(compiled.commands[2].text, "PCH")
+        self.assertEqual(compiled.commands[3].key, "TAB")
         self.assertEqual(compiled.commands[4].text, "1")
+        self.assertEqual(compiled.commands[7].text, "PNT")
+        self.assertEqual(compiled.commands[9].text, "SP")
         self.assertEqual(compiled.commands[11].text, "120")
-        self.assertEqual(compiled.commands[1].metadata["line_code"], "DRY/PCH")
-        self.assertEqual(compiled.commands[1].metadata["job_id"], "claim-1024")
+        self.assertEqual(compiled.commands[0].metadata["line_code"], "DRY/PCH")
+        self.assertEqual(compiled.commands[0].metadata["job_id"], "claim-1024")
 
     def test_compile_requires_review_when_confidence_is_too_low(self) -> None:
         service = ProducerService(self.config, FakeRuntimeClient(low_confidence_patch=True))
@@ -410,7 +414,7 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(publisher.published_job.commands[0].seq, 13)
         self.assertEqual(publisher.published_job.commands[-1].seq, 19)
 
-    def test_draft_to_job_inserts_section_note_items(self) -> None:
+    def test_draft_to_job_keeps_only_accepted_line_items(self) -> None:
         draft = EstimateDraft.create("claim-room-order", "default")
         draft = draft.add_item(
             DraftLineItem.create(
@@ -438,17 +442,17 @@ class ProducerTests(unittest.TestCase):
         )
 
         job = draft.to_estimate_job()
-        self.assertEqual([item.item_type for item in job.items], ["note", "line_item", "note", "line_item"])
-        self.assertEqual(job.items[0].note, "Ceiling")
-        self.assertEqual(job.items[1].approved_code, "DRY/PCH")
-        self.assertEqual(job.items[2].note, "Walls")
-        self.assertEqual(job.items[3].approved_code, "PNT/SP")
+        self.assertEqual([item.item_type for item in job.items], ["line_item", "line_item"])
+        self.assertEqual(job.items[0].approved_code, "DRY/PCH")
+        self.assertEqual(job.items[1].approved_code, "PNT/SP")
 
         service = ProducerService(self.config, FakeRuntimeClient())
         compiled = service.compile_job(job, starting_seq=5)
-        self.assertEqual(compiled.commands[0].key, "F9")
-        self.assertEqual(compiled.commands[1].text, "Ceiling")
-        self.assertEqual(compiled.commands[3].key, "F6")
+        keys = [command.key for command in compiled.commands if command.kind == "key"]
+        self.assertNotIn("F9", keys)
+        self.assertNotIn("F6", keys)
+        self.assertEqual(compiled.commands[0].text, "DRY")
+        self.assertEqual(compiled.commands[2].text, "PCH")
 
     def test_activity_round_trips_from_draft_to_compiler_metadata(self) -> None:
         draft = EstimateDraft.create("claim-activity", "default")
@@ -467,11 +471,11 @@ class ProducerTests(unittest.TestCase):
         )
 
         job = draft.to_estimate_job()
-        self.assertEqual(job.items[1].activity, "R")
+        self.assertEqual(job.items[0].activity, "R")
 
         service = ProducerService(self.config, FakeRuntimeClient())
         compiled = service.compile_job(job, starting_seq=10)
-        line_command = next(command for command in compiled.commands if command.kind == "text" and command.text == "DRY/PCH")
+        line_command = next(command for command in compiled.commands if command.kind == "text" and command.text == "DRY")
         self.assertEqual(line_command.metadata["line_activity"], "R")
 
     def test_api_endpoints(self) -> None:
@@ -510,7 +514,8 @@ class ProducerTests(unittest.TestCase):
         )
         self.assertEqual(compiled.status_code, 200)
         self.assertEqual(compiled.json()["starting_seq"], 40)
-        self.assertEqual(compiled.json()["commands"][1]["text"], "DRY/PCH")
+        self.assertEqual(compiled.json()["commands"][0]["text"], "DRY")
+        self.assertEqual(compiled.json()["commands"][2]["text"], "PCH")
 
         published = client.post("/publish", headers=headers, json=self._job_payload())
         self.assertEqual(published.status_code, 200)

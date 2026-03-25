@@ -312,27 +312,7 @@ class EstimateDraft:
 
     def to_estimate_job(self) -> EstimateJob:
         scope_items: list[EstimateScopeItem] = []
-        current_room = ""
-        current_section = ""
-        counter = 1
         for item in self.ordered_items(only_accepted=True):
-            if item.room != current_room or item.section != current_section:
-                note_text = item.section
-                scope_items.append(
-                    EstimateScopeItem(
-                        item_id=f"note-{counter}",
-                        description=note_text,
-                        item_type="note",
-                        room=item.room,
-                        section=item.section,
-                        surface=item.surface,
-                        note=note_text,
-                    )
-                )
-                counter += 1
-                current_room = item.room
-                current_section = item.section
-
             scope_items.append(
                 EstimateScopeItem(
                     item_id=item.id,
@@ -348,7 +328,6 @@ class EstimateDraft:
                     approved_code=item.approved_code,
                 )
             )
-            counter += 1
 
         return EstimateJob(job_id=self.job_id, bridge_id=self.bridge_id, items=tuple(scope_items))
 
