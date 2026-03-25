@@ -313,6 +313,45 @@ class EstimateDraft:
         updated = tuple(replace(item, status=normalized_status) if item.id == item_id else item for item in self.items)
         return replace(self, items=updated, updated_at=_now_iso())
 
+    def resolve_item(
+        self,
+        item_id: str,
+        *,
+        category: str,
+        selector: str,
+        quantity: str = "",
+        description: str = "",
+        status: str = "accepted",
+    ) -> "EstimateDraft":
+        normalized_category, normalized_selector, normalized_code = normalize_cat_sel(
+            category=category,
+            selector=selector,
+        )
+        if not normalized_code:
+            raise ValueError("Both category and selector are required to resolve an item.")
+
+        replacement_found = False
+        updated_items: list[DraftLineItem] = []
+        for item in self.items:
+            if item.id != item_id:
+                updated_items.append(item)
+                continue
+            replacement_found = True
+            updated_items.append(
+                replace(
+                    item,
+                    category=normalized_category,
+                    selector=normalized_selector,
+                    approved_code=normalized_code,
+                    quantity=format_quantity(quantity) if _clean(quantity) else item.quantity,
+                    description=_clean(description) or item.description,
+                    status=_clean(status).lower() or "accepted",
+                )
+            )
+        if not replacement_found:
+            raise KeyError(item_id)
+        return replace(self, items=tuple(updated_items), updated_at=_now_iso())
+
     def accept_all(self) -> "EstimateDraft":
         return replace(self, items=tuple(replace(item, status="accepted") for item in self.items), updated_at=_now_iso())
 
@@ -1303,6 +1342,29 @@ class DraftCoordinator:
 
     def accept_all(self, job_id: str) -> EstimateDraft:
         draft = self.get_draft(job_id).accept_all()
+        saved = self._store.save(draft)
+        self._store.refresh_review_statuses(saved)
+        return saved
+
+    def resolve_item(
+        self,
+        job_id: str,
+        item_id: str,
+        *,
+        category: str,
+        selector: str,
+        quantity: str = "",
+        description: str = "",
+        status: str = "accepted",
+    ) -> EstimateDraft:
+        draft = self.get_draft(job_id).resolve_item(
+            item_id,
+            category=category,
+            selector=selector,
+            quantity=quantity,
+            description=description,
+            status=status,
+        )
         saved = self._store.save(draft)
         self._store.refresh_review_statuses(saved)
         return saved

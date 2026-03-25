@@ -141,6 +141,30 @@ struct BackendClient {
         )
     }
 
+    func resolveDraftItem(
+        jobID: String,
+        itemID: String,
+        category: String,
+        selector: String,
+        quantity: String,
+        description: String,
+        status: String = "accepted",
+        configuration: BackendConfiguration
+    ) async throws -> OpenDraftResponse {
+        try await postJSON(
+            path: "drafts/\(jobID)/items/\(itemID)/resolve",
+            payload: [
+                "category": category,
+                "selector": selector,
+                "quantity": quantity,
+                "description": description,
+                "status": status
+            ],
+            configuration: configuration,
+            as: OpenDraftResponse.self
+        )
+    }
+
     func acceptAll(
         jobID: String,
         configuration: BackendConfiguration

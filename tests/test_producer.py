@@ -616,6 +616,56 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(listed[0]["message_count"], 6)
         self.assertEqual(listed[1]["bridge_id"], "field")
 
+    def test_resolve_draft_item_endpoint_updates_code_and_status(self) -> None:
+        service = ProducerService(self.config, FakeRuntimeClient(), FakePublisher())
+        drafts = DraftCoordinator(
+            DraftStore(self.config.draft_storage_dir),
+            service,
+            transcription_service=FakeTranscriptionService(),
+            agent=None,
+        )
+        draft = EstimateDraft.create("claim-resolve", "default").add_item(
+            DraftLineItem.create(
+                room="Bedroom",
+                section="Ceiling",
+                description="Paint ceiling",
+                quantity="C",
+                status="pending_review",
+                source="planner",
+            )
+        )
+        drafts._store.save(draft)  # type: ignore[attr-defined]
+
+        client = TestClient(
+            create_app(
+                self.config,
+                service,
+                transcription_service=FakeTranscriptionService(),
+                draft_coordinator=drafts,
+            )
+        )
+        headers = {"X-API-Key": "producer-secret"}
+        item_id = draft.items[0].id
+
+        response = client.post(
+            f"/drafts/{draft.job_id}/items/{item_id}/resolve",
+            headers=headers,
+            json={
+                "category": "PNT",
+                "selector": "SP",
+                "quantity": "C",
+                "description": "Paint ceiling",
+                "status": "accepted",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        item = response.json()["draft"]["items"][0]
+        self.assertEqual(item["category"], "PNT")
+        self.assertEqual(item["selector"], "SP")
+        self.assertEqual(item["approved_code"], "PNT/SP")
+        self.assertEqual(item["status"], "accepted")
+
     def test_openai_strict_tool_schema_marks_optional_fields_nullable(self) -> None:
         agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())
 

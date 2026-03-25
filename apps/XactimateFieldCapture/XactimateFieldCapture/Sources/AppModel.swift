@@ -93,6 +93,10 @@ final class FieldCaptureAppModel: ObservableObject {
         activePendingTurn == nil && draft?.items.contains(where: { $0.status == "accepted" }) == true
     }
 
+    var blockedPlanItems: [PlannedScopeItem] {
+        planResponse?.items.filter { $0.status == "unresolved" || $0.status == "needs_review" } ?? []
+    }
+
     var publishStatusMessage: String? {
         guard canPublish else {
             if activePendingTurn != nil {
@@ -316,6 +320,38 @@ final class FieldCaptureAppModel: ObservableObject {
             self.applyDraftResponse(response)
             self.planResponse = nil
             self.publishResponse = nil
+            try await self.reloadClaimSummaries()
+        }
+    }
+
+    func resolveItem(
+        itemID: String,
+        category: String,
+        selector: String,
+        quantity: String,
+        description: String
+    ) async {
+        await runBusy("Resolving line item...") { [self] in
+            let response = try await self.client.resolveDraftItem(
+                jobID: self.jobID.trimmed,
+                itemID: itemID,
+                category: category.trimmed.uppercased(),
+                selector: selector.trimmed.uppercased(),
+                quantity: quantity.trimmed,
+                description: description.trimmed,
+                configuration: self.backendConfiguration
+            )
+            self.applyDraftResponse(response)
+            self.publishResponse = nil
+
+            let replanned = try await self.client.planDraft(
+                jobID: self.jobID.trimmed,
+                configuration: self.backendConfiguration
+            )
+            self.draft = replanned.draft
+            self.groupedSections = replanned.groupedSections
+            self.planResponse = replanned.plan
+            self.syncSelectedRoom()
             try await self.reloadClaimSummaries()
         }
     }

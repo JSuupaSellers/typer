@@ -18,6 +18,7 @@ struct ContentView: View {
     @State private var showingPublishConfirm = false
     @State private var showingSettings = false
     @State private var showingDirectOutput = false
+    @State private var resolvingPlanItem: PlannedScopeItem?
     @State private var selectedSurface: WorkspaceSurface = .chat
     @State private var selectedOutputSurface: OutputSurface = .direct
 
@@ -110,6 +111,22 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showingDirectOutput) {
                 directOutputSheet
+            }
+            .sheet(item: $resolvingPlanItem) { item in
+                ResolvePlanItemSheet(item: item, accent: accent, ink: ink, mutedInk: mutedInk) {
+                    category, selector, quantity, description in
+                    let itemID = item.source.itemId
+                    Task {
+                        await model.resolveItem(
+                            itemID: itemID,
+                            category: category,
+                            selector: selector,
+                            quantity: quantity,
+                            description: description
+                        )
+                    }
+                    resolvingPlanItem = nil
+                }
             }
             .alert("Something went wrong", isPresented: Binding(
                 get: { model.errorMessage != nil },
@@ -313,6 +330,38 @@ struct ContentView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .background(accentWash, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                    if !model.blockedPlanItems.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text("Resolve Blockers")
+                                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                                    .foregroundStyle(ink)
+                                Spacer()
+                                Text("\(model.blockedPlanItems.count)")
+                                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                                    .foregroundStyle(accent)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(accentWash, in: Capsule(style: .continuous))
+                            }
+
+                            ForEach(model.blockedPlanItems) { item in
+                                Button {
+                                    resolvingPlanItem = item
+                                } label: {
+                                    blockedPlanRow(item)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(14)
+                        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(cardStroke, lineWidth: 1)
+                        )
+                    }
                 }
 
                 if let publishStatusMessage = model.publishStatusMessage {
@@ -621,6 +670,52 @@ struct ContentView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background(isActive ? tint.opacity(0.12) : Color(.systemGray6), in: Capsule(style: .continuous))
+    }
+
+    private func blockedPlanRow(_ item: PlannedScopeItem) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.source.room.isEmpty ? "General" : item.source.room)
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(ink)
+                    Text(item.source.section.isEmpty ? "Scope" : item.source.section)
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(accent)
+                        .kerning(0.5)
+                }
+                Spacer()
+                statusBadge(item.status)
+            }
+
+            Text(item.source.description)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(ink)
+                .multilineTextAlignment(.leading)
+
+            if !item.reviewReason.trimmed.isEmpty {
+                Text(item.reviewReason)
+                    .font(.system(size: 13))
+                    .foregroundStyle(mutedInk)
+                    .multilineTextAlignment(.leading)
+            }
+
+            if !item.candidates.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(Array(item.candidates.prefix(3).enumerated()), id: \.offset) { _, candidate in
+                            HStack(spacing: 6) {
+                                codeChip(candidate.item.category, tint: accent)
+                                codeChip(candidate.item.selector, tint: ink)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(.systemGray6).opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     // MARK: - Sheets
@@ -1293,5 +1388,173 @@ struct ContentView: View {
         model.filledExportRows.reduce(1) { partial, row in
             partial + row.cat.count + 1 + row.sel.count + 1 + row.quantity.count + 1
         }
+    }
+}
+
+private struct ResolvePlanItemSheet: View {
+    let item: PlannedScopeItem
+    let accent: Color
+    let ink: Color
+    let mutedInk: Color
+    let onResolve: (String, String, String, String) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var category: String
+    @State private var selector: String
+    @State private var quantity: String
+    @State private var description: String
+
+    init(
+        item: PlannedScopeItem,
+        accent: Color,
+        ink: Color,
+        mutedInk: Color,
+        onResolve: @escaping (String, String, String, String) -> Void
+    ) {
+        self.item = item
+        self.accent = accent
+        self.ink = ink
+        self.mutedInk = mutedInk
+        self.onResolve = onResolve
+        _category = State(initialValue: item.source.category)
+        _selector = State(initialValue: item.source.selector)
+        _quantity = State(initialValue: item.source.quantity)
+        _description = State(initialValue: item.source.description)
+    }
+
+    private var canResolve: Bool {
+        !category.trimmed.isEmpty && !selector.trimmed.isEmpty
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(item.source.description)
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .foregroundStyle(ink)
+                        Text("\((item.source.room.isEmpty ? "General" : item.source.room)) • \((item.source.section.isEmpty ? "Scope" : item.source.section))")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(mutedInk)
+                    }
+
+                    if !item.reviewReason.trimmed.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Why It’s Blocked")
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                                .foregroundStyle(accent)
+                            Text(item.reviewReason)
+                                .font(.system(size: 14))
+                                .foregroundStyle(ink)
+                        }
+                        .padding(14)
+                        .background(Color(.systemGray6).opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+
+                    if !item.candidates.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Suggested Matches")
+                                .font(.system(size: 15, weight: .bold, design: .rounded))
+                                .foregroundStyle(ink)
+
+                            ForEach(Array(item.candidates.enumerated()), id: \.offset) { _, candidate in
+                                Button {
+                                    category = candidate.item.category
+                                    selector = candidate.item.selector
+                                    description = candidate.item.description
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        HStack(spacing: 6) {
+                                            codeChip(candidate.item.category, tint: accent)
+                                            codeChip(candidate.item.selector, tint: ink)
+                                            Spacer()
+                                            Text(candidate.confidence.capitalized)
+                                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                                .foregroundStyle(accent)
+                                        }
+                                        Text(candidate.item.description)
+                                            .font(.system(size: 14, weight: .semibold))
+                                            .foregroundStyle(ink)
+                                        if let reason = candidate.reasons.first, !reason.trimmed.isEmpty {
+                                            Text(reason)
+                                                .font(.system(size: 13))
+                                                .foregroundStyle(mutedInk)
+                                                .multilineTextAlignment(.leading)
+                                        }
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(12)
+                                    .background(Color(.systemGray6).opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Resolve Manually")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundStyle(ink)
+
+                        HStack(spacing: 10) {
+                            resolverField(title: "CAT", text: $category, width: 90)
+                            resolverField(title: "SEL", text: $selector, width: nil)
+                        }
+
+                        resolverField(title: "QTY", text: $quantity, width: nil, autocapitalize: false)
+                        resolverField(title: "Description", text: $description, width: nil, autocapitalize: false)
+                    }
+                }
+                .padding(16)
+            }
+            .background(Color(.systemBackground))
+            .navigationTitle("Resolve Item")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Apply") {
+                        onResolve(category.trimmed, selector.trimmed, quantity.trimmed, description.trimmed)
+                        dismiss()
+                    }
+                    .disabled(!canResolve)
+                }
+            }
+        }
+        .presentationDetents([.large])
+    }
+
+    private func resolverField(
+        title: String,
+        text: Binding<String>,
+        width: CGFloat?,
+        autocapitalize: Bool = true
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(accent)
+            TextField(title, text: text)
+                .textFieldStyle(.plain)
+                .font(.system(size: 16))
+                .textInputAutocapitalization(autocapitalize ? .characters : .never)
+                .autocorrectionDisabled()
+                .padding(.horizontal, 12)
+                .padding(.vertical, 11)
+                .background(Color(.systemGray6).opacity(0.65), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .frame(maxWidth: width == nil ? .infinity : width, alignment: .leading)
+    }
+
+    private func codeChip(_ title: String, tint: Color) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(tint.opacity(0.12), in: Capsule(style: .continuous))
     }
 }

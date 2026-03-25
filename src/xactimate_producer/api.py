@@ -383,6 +383,30 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Unknown draft job: {job_id}") from exc
         return {"status": "ok", **draft_payload(drafts, job_id, draft)}
 
+    @app.post("/drafts/{job_id}/items/{item_id}/resolve")
+    def resolve_draft_item(
+        job_id: str,
+        item_id: str,
+        payload: dict,
+        _auth: None = Depends(authorize),
+        drafts: DraftCoordinator = Depends(get_draft_coordinator),
+    ) -> dict[str, object]:
+        try:
+            draft = drafts.resolve_item(
+                job_id,
+                item_id,
+                category=str(payload.get("category", "")).strip(),
+                selector=str(payload.get("selector", "")).strip(),
+                quantity=str(payload.get("quantity", "")).strip(),
+                description=str(payload.get("description", "")).strip(),
+                status=str(payload.get("status", "accepted")).strip() or "accepted",
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=f"Unknown draft item: {item_id}") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"status": "ok", **draft_payload(drafts, job_id, draft)}
+
     @app.post("/drafts/{job_id}/accept-all")
     def accept_all_draft_items(
         job_id: str,
