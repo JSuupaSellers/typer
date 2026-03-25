@@ -809,17 +809,17 @@ class ProducerTests(unittest.TestCase):
     def test_direct_output_compile_turns_multiline_text_into_individual_keystrokes(self) -> None:
         service = DirectOutputService(self.config, FakePublisher())
 
-        commands = service.compile_text_commands(
-            text="Hello there\n\nSecond paragraph",
-            append_enter=True,
-        )
+        commands = service.compile_text_commands(text="A B\n\tC", append_enter=True)
 
         self.assertEqual(commands[0].kind, "upall")
         self.assertEqual(commands[1].kind, "key")
-        self.assertEqual(commands[1].key, "H")
+        self.assertEqual(commands[1].key, "A")
         self.assertEqual(commands[2].kind, "key")
-        self.assertEqual(commands[2].key, "e")
+        self.assertEqual(commands[2].key, "SPACE")
+        self.assertEqual(commands[3].kind, "key")
+        self.assertEqual(commands[3].key, "B")
         self.assertTrue(any(command.key == "ENTER" for command in commands if command.kind == "key"))
+        self.assertTrue(any(command.key == "TAB" for command in commands if command.kind == "key"))
         self.assertEqual(commands[-1].kind, "key")
         self.assertEqual(commands[-1].key, "ENTER")
 

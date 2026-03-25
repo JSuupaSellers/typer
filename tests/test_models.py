@@ -43,11 +43,14 @@ class KeyboardCommandTests(unittest.TestCase):
             15,
             {
                 "kind": "text",
-                "text": "aB",
+                "text": "a B",
                 "repeat": 2,
             },
         )
-        self.assertEqual(text.to_teensy_lines(), ("KEY:a", "KEY:B", "KEY:a", "KEY:B"))
+        self.assertEqual(text.to_teensy_lines(), ("KEY:a", "KEY:SPACE", "KEY:B", "KEY:a", "KEY:SPACE", "KEY:B"))
+
+        space = KeyboardCommand.from_mapping(19, {"kind": "key", "key": "SPACE"})
+        self.assertEqual(space.to_teensy_lines(), ("KEY:SPACE",))
 
     def test_supports_down_upall_and_raw(self) -> None:
         down = KeyboardCommand.from_mapping(16, {"kind": "down", "key": "shift"})

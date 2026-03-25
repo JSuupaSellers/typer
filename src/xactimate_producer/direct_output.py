@@ -348,6 +348,8 @@ class DirectOutputService:
 
     @staticmethod
     def _key_token_for_character(character: str) -> str:
+        if character == " ":
+            return "SPACE"
         if character == "\t":
             return "TAB"
         return character

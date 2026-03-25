@@ -52,6 +52,10 @@ def _guess_kind(payload: Mapping[str, Any]) -> str | None:
 
 def _format_key_token(value: str) -> str:
     trimmed = value.strip("\r\n")
+    if trimmed == " ":
+        return "SPACE"
+    if trimmed == "\t":
+        return "TAB"
     if len(trimmed) == 1:
         return trimmed
     return trimmed.strip().upper()
@@ -141,7 +145,7 @@ class KeyboardCommand:
         repeat = max(self.repeat, 1)
         if self.kind == "text":
             safe_text = (self.text or "").replace("\r", "")
-            expanded = tuple(f"KEY:{char}" for char in safe_text if char != "\n")
+            expanded = tuple(f"KEY:{_format_key_token(char)}" for char in safe_text if char != "\n")
             return expanded * repeat
         elif self.kind == "combo":
             combo_key = (self.key or "").strip()
