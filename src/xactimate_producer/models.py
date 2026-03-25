@@ -47,6 +47,43 @@ def format_quantity(value: Any) -> str:
     return str(value).strip()
 
 
+def _normalized_code_part(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip().upper()
+
+
+def split_cat_sel(value: Any) -> tuple[str, str]:
+    cleaned = _normalized_code_part(value)
+    if not cleaned:
+        return "", ""
+    if "/" not in cleaned:
+        return cleaned, ""
+    category, selector = cleaned.split("/", 1)
+    return category.strip(), selector.strip()
+
+
+def normalize_cat_sel(
+    *,
+    category: Any = "",
+    selector: Any = "",
+    approved_code: Any = "",
+) -> tuple[str, str, str]:
+    normalized_category = _normalized_code_part(category)
+    normalized_selector = _normalized_code_part(selector)
+    normalized_code = _normalized_code_part(approved_code)
+
+    if (not normalized_category or not normalized_selector) and normalized_code:
+        derived_category, derived_selector = split_cat_sel(normalized_code)
+        normalized_category = normalized_category or derived_category
+        normalized_selector = normalized_selector or derived_selector
+
+    if not normalized_code and normalized_category and normalized_selector:
+        normalized_code = f"{normalized_category}/{normalized_selector}"
+
+    return normalized_category, normalized_selector, normalized_code
+
+
 @dataclass(frozen=True)
 class CatalogLineItem:
     code: str
@@ -58,10 +95,15 @@ class CatalogLineItem:
 
     @classmethod
     def from_api_payload(cls, raw: dict[str, Any]) -> "CatalogLineItem":
+        category, selector, code = normalize_cat_sel(
+            category=raw.get("category", ""),
+            selector=raw.get("selector", ""),
+            approved_code=raw.get("code", ""),
+        )
         return cls(
-            code=str(raw.get("code", "")).strip().upper(),
-            category=str(raw.get("category", "")).strip().upper(),
-            selector=str(raw.get("selector", "")).strip().upper(),
+            code=code,
+            category=category,
+            selector=selector,
             description=str(raw.get("description", "")).strip(),
             unit=str(raw.get("unit", "")).strip(),
             details=str(raw.get("details", "")).strip(),
@@ -175,6 +217,8 @@ class EstimateScopeItem:
     quantity: str = ""
     activity: str = ""
     note: str = ""
+    category: str = ""
+    selector: str = ""
     approved_code: str = ""
     allow_auto_approve: bool = True
     min_confidence: str = "high"
@@ -185,6 +229,11 @@ class EstimateScopeItem:
         item_type = _first_present(raw, "item_type", "itemType", default="line_item").lower() or "line_item"
         if item_type not in {"line_item", "note"}:
             item_type = "line_item"
+        category, selector, approved_code = normalize_cat_sel(
+            category=_first_present(raw, "category"),
+            selector=_first_present(raw, "selector"),
+            approved_code=_first_present(raw, "approved_code", "approvedCode"),
+        )
         return cls(
             item_id=item_id or f"item-{index}",
             description=_first_present(raw, "description"),
@@ -197,12 +246,19 @@ class EstimateScopeItem:
             quantity=format_quantity(raw.get("quantity")),
             activity=_first_present(raw, "activity").upper(),
             note=_first_present(raw, "note"),
-            approved_code=_first_present(raw, "approved_code", "approvedCode").upper(),
+            category=category,
+            selector=selector,
+            approved_code=approved_code,
             allow_auto_approve=_as_bool(raw.get("allow_auto_approve", raw.get("allowAutoApprove", True)), True),
             min_confidence=normalize_confidence(_first_present(raw, "min_confidence", "minConfidence", default="high")),
         )
 
     def to_dict(self) -> dict[str, Any]:
+        category, selector, approved_code = normalize_cat_sel(
+            category=self.category,
+            selector=self.selector,
+            approved_code=self.approved_code,
+        )
         return {
             "item_id": self.item_id,
             "description": self.description,
@@ -215,7 +271,9 @@ class EstimateScopeItem:
             "quantity": self.quantity,
             "activity": self.activity,
             "note": self.note,
-            "approved_code": self.approved_code,
+            "category": category,
+            "selector": selector,
+            "approved_code": approved_code,
             "allow_auto_approve": self.allow_auto_approve,
             "min_confidence": self.min_confidence,
         }

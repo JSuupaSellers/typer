@@ -1,5 +1,31 @@
 import Foundation
 
+private func normalizedCodeParts(category: String?, selector: String?, approvedCode: String?) -> (category: String, selector: String, approvedCode: String) {
+    let initialCategory = category?.trimmed.uppercased() ?? ""
+    let initialSelector = selector?.trimmed.uppercased() ?? ""
+    let initialApprovedCode = approvedCode?.trimmed.uppercased() ?? ""
+
+    var resolvedCategory = initialCategory
+    var resolvedSelector = initialSelector
+    var resolvedApprovedCode = initialApprovedCode
+
+    if (resolvedCategory.isEmpty || resolvedSelector.isEmpty), !resolvedApprovedCode.isEmpty {
+        let pieces = resolvedApprovedCode.split(separator: "/", maxSplits: 1).map { String($0).trimmed.uppercased() }
+        if resolvedCategory.isEmpty, let first = pieces.first {
+            resolvedCategory = first
+        }
+        if resolvedSelector.isEmpty, pieces.count > 1 {
+            resolvedSelector = pieces[1]
+        }
+    }
+
+    if resolvedApprovedCode.isEmpty, !resolvedCategory.isEmpty, !resolvedSelector.isEmpty {
+        resolvedApprovedCode = "\(resolvedCategory)/\(resolvedSelector)"
+    }
+
+    return (resolvedCategory, resolvedSelector, resolvedApprovedCode)
+}
+
 struct BackendConfiguration {
     var baseURL: String
     var apiKey: String
@@ -23,6 +49,8 @@ struct DraftLineItemPayload: Codable, Identifiable, Equatable {
     let id: String
     let room: String
     let section: String
+    let category: String
+    let selector: String
     let approvedCode: String
     let description: String
     let quantity: String
@@ -38,6 +66,8 @@ struct DraftLineItemPayload: Codable, Identifiable, Equatable {
         case id
         case room
         case section
+        case category
+        case selector
         case approvedCode = "approved_code"
         case description
         case quantity
@@ -55,7 +85,14 @@ struct DraftLineItemPayload: Codable, Identifiable, Equatable {
         id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
         room = try container.decodeIfPresent(String.self, forKey: .room) ?? "General"
         section = try container.decodeIfPresent(String.self, forKey: .section) ?? "Scope"
-        approvedCode = try container.decodeIfPresent(String.self, forKey: .approvedCode) ?? ""
+        let normalized = normalizedCodeParts(
+            category: try container.decodeIfPresent(String.self, forKey: .category),
+            selector: try container.decodeIfPresent(String.self, forKey: .selector),
+            approvedCode: try container.decodeIfPresent(String.self, forKey: .approvedCode)
+        )
+        category = normalized.category
+        selector = normalized.selector
+        approvedCode = normalized.approvedCode
         description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
         quantity = try container.decodeIfPresent(String.self, forKey: .quantity) ?? ""
         activity = try container.decodeIfPresent(String.self, forKey: .activity) ?? ""
@@ -365,6 +402,8 @@ struct EstimateScopeItemPayload: Codable, Identifiable, Equatable {
     let quantity: String
     let activity: String
     let note: String
+    let category: String
+    let selector: String
     let approvedCode: String
 
     var id: String { itemId }
@@ -381,6 +420,8 @@ struct EstimateScopeItemPayload: Codable, Identifiable, Equatable {
         case quantity
         case activity
         case note
+        case category
+        case selector
         case approvedCode = "approved_code"
     }
 
@@ -397,7 +438,14 @@ struct EstimateScopeItemPayload: Codable, Identifiable, Equatable {
         quantity = try container.decodeIfPresent(String.self, forKey: .quantity) ?? ""
         activity = try container.decodeIfPresent(String.self, forKey: .activity) ?? ""
         note = try container.decodeIfPresent(String.self, forKey: .note) ?? ""
-        approvedCode = try container.decodeIfPresent(String.self, forKey: .approvedCode) ?? ""
+        let normalized = normalizedCodeParts(
+            category: try container.decodeIfPresent(String.self, forKey: .category),
+            selector: try container.decodeIfPresent(String.self, forKey: .selector),
+            approvedCode: try container.decodeIfPresent(String.self, forKey: .approvedCode)
+        )
+        category = normalized.category
+        selector = normalized.selector
+        approvedCode = normalized.approvedCode
     }
 }
 

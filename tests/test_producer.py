@@ -445,6 +445,10 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual([item.item_type for item in job.items], ["line_item", "line_item"])
         self.assertEqual(job.items[0].approved_code, "DRY/PCH")
         self.assertEqual(job.items[1].approved_code, "PNT/SP")
+        self.assertEqual(job.items[0].category, "DRY")
+        self.assertEqual(job.items[0].selector, "PCH")
+        self.assertEqual(job.items[1].category, "PNT")
+        self.assertEqual(job.items[1].selector, "SP")
 
         service = ProducerService(self.config, FakeRuntimeClient())
         compiled = service.compile_job(job, starting_seq=5)
@@ -644,6 +648,12 @@ class ProducerTests(unittest.TestCase):
         self.assertEqual(response_format["format"]["type"], "json_schema")
         self.assertTrue(response_format["format"]["strict"])
         self.assertEqual(response_format["format"]["schema"]["required"], ["assistant_reply", "operations"])
+        operation_schema = response_format["format"]["schema"]["properties"]["operations"]["items"]
+        self.assertIn("category", operation_schema["properties"])
+        self.assertIn("selector", operation_schema["properties"])
+        self.assertIn("category", operation_schema["required"])
+        self.assertIn("selector", operation_schema["required"])
+        self.assertNotIn("approved_code", operation_schema["required"])
 
     def test_openai_agent_uses_stored_responses_for_tool_loops(self) -> None:
         agent = OpenAIDraftAgent(self.config, FakeRuntimeClient())
@@ -745,6 +755,22 @@ class ProducerTests(unittest.TestCase):
         self.assertIn("FNC/BRS>", suggested_codes)
         self.assertIn("FNC/BR", suggested_codes)
         self.assertTrue(any(entry.get("quantity") == "PF" for entry in result["suggestions"]))
+
+    def test_draft_line_item_exposes_split_cat_sel_from_legacy_code(self) -> None:
+        item = DraftLineItem.from_dict(
+            {
+                "room": "Bedroom",
+                "section": "Ceiling",
+                "approved_code": "PNT/SP",
+                "description": "Paint ceiling",
+                "quantity": "C",
+            }
+        )
+
+        self.assertEqual(item.category, "PNT")
+        self.assertEqual(item.selector, "SP")
+        self.assertEqual(item.to_dict()["category"], "PNT")
+        self.assertEqual(item.to_dict()["selector"], "SP")
 
     def test_policy_engine_returns_expected_defaults_and_fallbacks(self) -> None:
         policy = PolicyEngine(self.config.policy_path)

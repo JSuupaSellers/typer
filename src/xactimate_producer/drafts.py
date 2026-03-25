@@ -10,7 +10,7 @@ import sqlite3
 from typing import Any, Protocol
 from uuid import uuid4
 
-from .models import EstimateJob, EstimateScopeItem, format_quantity
+from .models import EstimateJob, EstimateScopeItem, format_quantity, normalize_cat_sel
 from .policy import PolicyEngine
 from .service import ProducerService
 from .transcription import TranscriptionServiceProtocol, default_adjuster_prompt
@@ -66,6 +66,17 @@ def _section_rank(section: str) -> tuple[int, str]:
     return (100, lowered)
 
 
+def _display_code(*, category: str, selector: str, approved_code: str) -> str:
+    normalized_category, normalized_selector, normalized_code = normalize_cat_sel(
+        category=category,
+        selector=selector,
+        approved_code=approved_code,
+    )
+    if normalized_category and normalized_selector:
+        return f"{normalized_category} / {normalized_selector}"
+    return normalized_code or normalized_category or normalized_selector
+
+
 @dataclass(frozen=True)
 class DraftMessage:
     id: str
@@ -107,6 +118,8 @@ class DraftLineItem:
     section: str
     approved_code: str
     description: str
+    category: str = ""
+    selector: str = ""
     quantity: str = ""
     activity: str = ""
     surface: str = ""
@@ -123,8 +136,10 @@ class DraftLineItem:
         *,
         room: str,
         section: str,
-        approved_code: str,
         description: str,
+        approved_code: str = "",
+        category: str = "",
+        selector: str = "",
         quantity: str = "",
         activity: str = "",
         surface: str = "",
@@ -134,12 +149,19 @@ class DraftLineItem:
         source: str = "agent",
         rationale: str = "",
     ) -> "DraftLineItem":
+        normalized_category, normalized_selector, normalized_code = normalize_cat_sel(
+            category=category,
+            selector=selector,
+            approved_code=approved_code,
+        )
         return cls(
             id=f"item-{uuid4().hex[:12]}",
             room=_normalized_room(room),
             section=_normalized_section(section, surface),
-            approved_code=_clean(approved_code).upper(),
+            approved_code=normalized_code,
             description=_clean(description),
+            category=normalized_category,
+            selector=normalized_selector,
             quantity=format_quantity(quantity),
             activity=_clean(activity).upper(),
             surface=_clean(surface),
@@ -152,12 +174,19 @@ class DraftLineItem:
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "DraftLineItem":
+        normalized_category, normalized_selector, normalized_code = normalize_cat_sel(
+            category=raw.get("category", ""),
+            selector=raw.get("selector", ""),
+            approved_code=raw.get("approved_code", ""),
+        )
         return cls(
             id=str(raw.get("id", "")).strip() or f"item-{uuid4().hex[:12]}",
             room=_normalized_room(str(raw.get("room", ""))),
             section=_normalized_section(str(raw.get("section", "")), str(raw.get("surface", ""))),
-            approved_code=str(raw.get("approved_code", "")).strip().upper(),
+            approved_code=normalized_code,
             description=str(raw.get("description", "")).strip(),
+            category=normalized_category,
+            selector=normalized_selector,
             quantity=format_quantity(raw.get("quantity")),
             activity=str(raw.get("activity", "")).strip().upper(),
             surface=str(raw.get("surface", "")).strip(),
@@ -170,11 +199,18 @@ class DraftLineItem:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        normalized_category, normalized_selector, normalized_code = normalize_cat_sel(
+            category=self.category,
+            selector=self.selector,
+            approved_code=self.approved_code,
+        )
         return {
             "id": self.id,
             "room": self.room,
             "section": self.section,
-            "approved_code": self.approved_code,
+            "category": normalized_category,
+            "selector": normalized_selector,
+            "approved_code": normalized_code,
             "description": self.description,
             "quantity": self.quantity,
             "activity": self.activity,
@@ -325,6 +361,8 @@ class EstimateDraft:
                     keywords=item.keywords,
                     quantity=item.quantity,
                     activity=item.activity,
+                    category=item.category,
+                    selector=item.selector,
                     approved_code=item.approved_code,
                 )
             )
@@ -335,7 +373,8 @@ class EstimateDraft:
         sections: list[str] = []
         for group in self.grouped_sections():
             item_lines = "\n".join(
-                f"- {item['approved_code']}{(' activity=' + item['activity']) if item.get('activity') else ''}: "
+                f"- {_display_code(category=str(item.get('category', '')), selector=str(item.get('selector', '')), approved_code=str(item.get('approved_code', '')))}"
+                f"{(' activity=' + item['activity']) if item.get('activity') else ''}: "
                 f"{item['description']} qty={item['quantity'] or '-'} status={item['status']}"
                 for item in group["items"]
             )
@@ -1456,7 +1495,8 @@ class DraftCoordinator:
             return "No existing room items."
         return "\n\n".join(
             f"{group['section']}\n" + "\n".join(
-                f"- {item['approved_code']}: {item['description']} qty={item['quantity'] or '-'} status={item['status']}"
+                f"- {_display_code(category=str(item.get('category', '')), selector=str(item.get('selector', '')), approved_code=str(item.get('approved_code', '')))}: "
+                f"{item['description']} qty={item['quantity'] or '-'} status={item['status']}"
                 for item in group["items"]
             )
             for group in sections
@@ -1473,11 +1513,20 @@ class DraftCoordinator:
                 updated = updated.clear_section(room, section)
                 continue
             if op == "remove_line_item":
-                updated = updated.remove_line_item(room, section, str(raw.get("approved_code", "")).strip())
+                _, _, approved_code = normalize_cat_sel(
+                    category=raw.get("category", ""),
+                    selector=raw.get("selector", ""),
+                    approved_code=raw.get("approved_code", ""),
+                )
+                updated = updated.remove_line_item(room, section, approved_code)
                 continue
             if op != "add_line_item":
                 continue
-            approved_code = str(raw.get("approved_code", "")).strip().upper()
+            category, selector, approved_code = normalize_cat_sel(
+                category=raw.get("category", ""),
+                selector=raw.get("selector", ""),
+                approved_code=raw.get("approved_code", ""),
+            )
             if not approved_code:
                 continue
             updated = updated.add_item(
@@ -1486,6 +1535,8 @@ class DraftCoordinator:
                     section=section,
                     approved_code=approved_code,
                     description=str(raw.get("description", "")).strip(),
+                    category=category,
+                    selector=selector,
                     quantity=str(raw.get("quantity", "")).strip(),
                     activity=str(raw.get("activity", "")).strip(),
                     surface=str(raw.get("surface", "")).strip(),

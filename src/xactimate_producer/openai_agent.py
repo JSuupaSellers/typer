@@ -8,7 +8,7 @@ import httpx
 
 from .config import ProducerConfig
 from .drafts import DraftLineItem, DraftTurnResult, EstimateDraft
-from .models import EstimateScopeItem
+from .models import EstimateScopeItem, normalize_cat_sel
 
 
 @dataclass(frozen=True)
@@ -396,7 +396,8 @@ class OpenAIDraftAgent:
                                     },
                                     "room": {"type": "string"},
                                     "section": {"type": "string"},
-                                    "approved_code": {"type": "string"},
+                                    "category": {"type": "string"},
+                                    "selector": {"type": "string"},
                                     "description": {"type": "string"},
                                     "quantity": {"type": "string"},
                                     "activity": {"type": "string"},
@@ -409,7 +410,8 @@ class OpenAIDraftAgent:
                                     "op",
                                     "room",
                                     "section",
-                                    "approved_code",
+                                    "category",
+                                    "selector",
                                     "description",
                                     "quantity",
                                     "activity",
@@ -434,8 +436,10 @@ class OpenAIDraftAgent:
             "Your job is to evolve a room-by-room estimate draft through chat. "
             "Always keep scope organized by room, then by section from ceiling to floor where appropriate. "
             "Typical section names are Ceiling, Walls, Floors, then system-specific sections like Cabinetry, Plumbing, Electrical, or HVAC when they matter. "
-            "The backend automatically inserts note separator rows from section titles, so your operations should focus on line items. "
+            "The draft UI groups accepted items by section, so your operations should focus on line items rather than section note rows. "
             "Never invent CAT/SEL codes. Use get_estimating_defaults, search_line_items, explore_line_item_search, and get_line_item before adding any line item. "
+            "Return CAT and SEL separately. Never put a combined code like PNT/SP into one field in your output. "
+            "Use category='PNT' and selector='SP' instead. "
             "You are responsible for the final structured estimate JSON. "
             "Tool results are advisory context so you can choose the right CAT/SEL, quantity expression, and activity in your output. "
             "For search_line_items, search one atomic scope item at a time. "
@@ -465,8 +469,8 @@ class OpenAIDraftAgent:
             "{\"assistant_reply\":\"short field-ready reply\","
             "\"operations\":["
             "{\"op\":\"clear_section\",\"room\":\"Bedroom 1\",\"section\":\"Walls\"},"
-            "{\"op\":\"remove_line_item\",\"room\":\"Bedroom 1\",\"section\":\"Ceiling\",\"approved_code\":\"DRY/PCH\"},"
-            "{\"op\":\"add_line_item\",\"room\":\"Bedroom 1\",\"section\":\"Ceiling\",\"approved_code\":\"DRY/PCH\","
+            "{\"op\":\"remove_line_item\",\"room\":\"Bedroom 1\",\"section\":\"Ceiling\",\"category\":\"DRY\",\"selector\":\"PCH\"},"
+            "{\"op\":\"add_line_item\",\"room\":\"Bedroom 1\",\"section\":\"Ceiling\",\"category\":\"DRY\",\"selector\":\"PCH\","
             "\"description\":\"2x2 drywall patch\",\"quantity\":\"1\",\"activity\":\"R\",\"surface\":\"Ceiling\",\"damage_type\":\"Patch\","
             "\"keywords\":\"2x2 patch picture frame\",\"rationale\":\"why this code fits\"}"
             "]}"
@@ -548,18 +552,24 @@ class OpenAIDraftAgent:
                 [
                     {
                         "when": "full-room baseboard detach and reset",
+                        "category": "FNC",
+                        "selector": "BRS",
                         "approved_code": "FNC/BRS",
                         "quantity": "PF",
                         "reason": "Current price list has an explicit Baseboard - Detach & reset selector.",
                     },
                     {
                         "when": "full-room multi-member baseboard detach and reset",
+                        "category": "FNC",
+                        "selector": "BRS>",
                         "approved_code": "FNC/BRS>",
                         "quantity": "PF",
                         "reason": "Use the multi-member detach/reset selector when the trim is built up from multiple members.",
                     },
                     {
                         "when": "reset only after another company already detached the baseboard",
+                        "category": "FNC",
+                        "selector": "BR",
                         "approved_code": "FNC/BR",
                         "quantity": "PF",
                         "reason": "Reset-only selector excludes detaching and is intended after prior removal.",
@@ -571,6 +581,8 @@ class OpenAIDraftAgent:
             suggestions.append(
                 {
                     "when": "generic full-room baseboard replacement with no size or material given",
+                    "category": "FNC",
+                    "selector": "B3",
                     "approved_code": "FNC/B3",
                     "quantity": "PF",
                     "reason": "Default practical assumption is common paint-grade 3 1/4 inch baseboard unless the user specifies otherwise.",
@@ -581,6 +593,8 @@ class OpenAIDraftAgent:
             suggestions.append(
                 {
                     "when": "full-room baseboard paint, two coats",
+                    "category": "PNT",
+                    "selector": "B2",
                     "approved_code": "PNT/B2",
                     "quantity": "PF",
                     "reason": "Baseboard paint in a room usually tracks the room perimeter.",
@@ -613,7 +627,8 @@ class OpenAIDraftAgent:
             "suggestions": suggestions,
             "notes": [
                 "Use explicit CAT/SEL selectors from the current price list when they exist.",
-                "This backend does not yet store a separate activity-code field, so explicit selectors are safer than relying on activity syntax.",
+                "Return category and selector as separate fields in your structured output.",
+                "This backend still carries a separate activity field, so preserve detach/reset, reset-only, paint, or similar intent there.",
                 "If the user gives a deduction such as doorway footage, subtract it from PF like PF-12.",
             ],
         }
@@ -676,12 +691,21 @@ class OpenAIDraftAgent:
                 updated = updated.clear_section(room, section)
                 continue
             if op == "remove_line_item":
-                updated = updated.remove_line_item(room, section, str(raw.get("approved_code", "")).strip())
+                _, _, approved_code = normalize_cat_sel(
+                    category=raw.get("category", ""),
+                    selector=raw.get("selector", ""),
+                    approved_code=raw.get("approved_code", ""),
+                )
+                updated = updated.remove_line_item(room, section, approved_code)
                 continue
             if op != "add_line_item":
                 continue
 
-            approved_code = str(raw.get("approved_code", "")).strip().upper()
+            category, selector, approved_code = normalize_cat_sel(
+                category=raw.get("category", ""),
+                selector=raw.get("selector", ""),
+                approved_code=raw.get("approved_code", ""),
+            )
             if not approved_code:
                 continue
             updated = updated.add_item(
@@ -690,6 +714,8 @@ class OpenAIDraftAgent:
                     section=section,
                     approved_code=approved_code,
                     description=str(raw.get("description", "")).strip(),
+                    category=category,
+                    selector=selector,
                     quantity=str(raw.get("quantity", "")).strip(),
                     activity=str(raw.get("activity", "")).strip(),
                     surface=str(raw.get("surface", "")).strip(),

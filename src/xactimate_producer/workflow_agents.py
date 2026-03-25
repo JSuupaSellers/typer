@@ -547,7 +547,8 @@ class RoomPlannerAgent:
                                 "op": {"type": "string", "enum": ["clear_section", "remove_line_item", "add_line_item"]},
                                 "room": {"type": "string"},
                                 "section": {"type": "string"},
-                                "approved_code": {"type": "string"},
+                                "category": {"type": "string"},
+                                "selector": {"type": "string"},
                                 "description": {"type": "string"},
                                 "quantity": {"type": "string"},
                                 "activity": {"type": "string"},
@@ -556,7 +557,7 @@ class RoomPlannerAgent:
                                 "keywords": {"type": "string"},
                                 "rationale": {"type": "string"}
                             },
-                            "required": ["op", "room", "section", "approved_code", "description", "quantity", "activity", "surface", "damage_type", "keywords", "rationale"],
+                            "required": ["op", "room", "section", "category", "selector", "description", "quantity", "activity", "surface", "damage_type", "keywords", "rationale"],
                             "additionalProperties": False,
                         }
                     }
@@ -571,6 +572,7 @@ class RoomPlannerAgent:
             "You are the room planner for a durable Xactimate claim workflow. "
             f"You may only draft room-scoped operations for {room_task.room}. "
             "Use the provided policy and catalog tools before choosing a CAT/SEL. "
+            "Return category and selector as separate fields, never as one combined PNT/SP-style string. "
             "Keep room work organized by section, and preserve separate intents like clean, seal, paint, patch, and detach/reset. "
             "Use clear_section only when the latest instruction clearly replaces prior scope in that section. "
             "Prefer policy-approved fallbacks over lexical lookalikes. "
@@ -675,4 +677,3 @@ class RoomVerifier:
             room=room,
             verification=self._policy.verify_room(room_summary=room_summary, items=room_items),
         )
-

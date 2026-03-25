@@ -525,9 +525,20 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .top, spacing: 8) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(item.approvedCode)
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
-                                .foregroundStyle(accent)
+                            if !item.category.isEmpty || !item.selector.isEmpty {
+                                HStack(spacing: 6) {
+                                    if !item.category.isEmpty {
+                                        codeChip(item.category, tint: accent)
+                                    }
+                                    if !item.selector.isEmpty {
+                                        codeChip(item.selector, tint: ink)
+                                    }
+                                }
+                            } else if !item.approvedCode.isEmpty {
+                                Text(item.approvedCode)
+                                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                                    .foregroundStyle(accent)
+                            }
                             Text(item.description)
                                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                                 .foregroundStyle(ink)
@@ -586,6 +597,15 @@ struct ContentView: View {
                 status == "accepted" ? accentWash : (status == "rejected" ? rejectedTint : Color(.systemGray6)),
                 in: Capsule(style: .continuous)
             )
+    }
+
+    private func codeChip(_ title: String, tint: Color) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(tint.opacity(0.12), in: Capsule(style: .continuous))
     }
 
     private func actionChip(
